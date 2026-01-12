@@ -20,6 +20,7 @@ Author: Anzony Quispe [aut, cre],
 	Doulo Sow [aut],
   	Clément de Chaisemartin [aut]
 Encoding: UTF-8
-Imports: data.table, MASS, fixest, dplyr, ggplot2, matlib, plm, openxlsx, stats, car, lmtest, sandwich, haven, cowplot, rnames, fixest
+Imports: data.table, MASS, fixest, dplyr, ggplot2, matlib, openxlsx, stats, car, lmtest, sandwich, haven, cowplot, rnames, Rcpp
+LinkingTo: Rcpp
 Roxygen: list(markdown = TRUE)
 RoxygenNote: 7.3.3
