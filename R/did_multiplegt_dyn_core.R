@@ -23,7 +23,7 @@
 #' @importFrom stats na.omit predict setNames
 #' @importFrom MASS ginv
 #' @importFrom fixest feols
-#' @importFrom dplyr lag n_distinct
+#' @importFrom dplyr n_distinct
 #' @returns A dataframe for the values of U_Gg_plus_XX, U_Gg_minus_XX, U_Gg_var_plus_XX, and U_Gg_var_minus_XX.
 #' @noRd
 did_multiplegt_dyn_core <- function(
@@ -170,8 +170,7 @@ did_multiplegt_dyn_core <- function(
     df[[paste0("mean_cohort_",i,"_s2_t_XX")]] <- NULL
 
     ## Creating long difference of outcome
-    df <- as.data.table(df)
-    df <- df[order(df$group_XX, df$time_XX), ]
+    setorder(df, group_XX, time_XX)
     df[, lagout := data.table::shift(outcome_XX, i), by = group_XX]
     df[, paste0("diff_y_", i, "_XX") := outcome_XX - lagout]
     df[, lagout := NULL]
@@ -181,7 +180,7 @@ did_multiplegt_dyn_core <- function(
     if (isTRUE(less_conservative_se)) {
 
       ## Creating a time-invariant, group-level variable, containing g's treatment at F_g-1+\ell
-      df$d_fg_XX_temp <- ifelse(df$time_XX == df$F_g_XX +i-1,
+      df$d_fg_XX_temp <- fifelse(df$time_XX == df$F_g_XX +i-1,
           df$treatment_XX, NA)
       df[, paste0("d_fg",i,"_XX") := mean(d_fg_XX_temp, na.rm = TRUE), by = "group_XX"]
 
@@ -191,7 +190,7 @@ did_multiplegt_dyn_core <- function(
         df[, path_0_XX := .GRP, by = c("d_fg0_XX", "F_g_XX")]
       }
 
-      df[[paste0("d_fg",i,"_XX")]] <- ifelse(is.na(df[[paste0("d_fg",i,"_XX")]]),
+      df[[paste0("d_fg",i,"_XX")]] <- fifelse(is.na(df[[paste0("d_fg",i,"_XX")]]),
           df[[paste0("d_fg",i-1,"_XX")]], df[[paste0("d_fg",i,"_XX")]])
       df[, paste0("path_",i,"_XX") := .GRP, by = c(paste0("path_",i-1,"_XX"), paste0("d_fg",i,"_XX"))]
       
@@ -208,10 +207,10 @@ did_multiplegt_dyn_core <- function(
     }
     ## Identifying the control (g,t)s in the estimation of dynamic effect i 
     df[[paste0("never_change_d_", i, "_XX")]] <- as.numeric(df$F_g_XX > df$time_XX)
-    df[[paste0("never_change_d_", i, "_XX")]] <- ifelse(is.na(df[[paste0("diff_y_", i, "_XX")]]), NA,  df[[paste0("never_change_d_", i, "_XX")]]) 
+    df[[paste0("never_change_d_", i, "_XX")]] <- fifelse(is.na(df[[paste0("diff_y_", i, "_XX")]]), NA_real_,  df[[paste0("never_change_d_", i, "_XX")]]) 
 
     if (isTRUE(only_never_switchers)) {
-     df[[paste0("never_change_d_", i, "_XX")]] <- ifelse(df$F_g_XX > df$time_XX & df$F_g_XX < T_max_XX + 1 & !is.null(df[[paste0("diff_y_",i,"_XX")]]), 0, df[[paste0("never_change_d_", i, "_XX")]])
+     df[[paste0("never_change_d_", i, "_XX")]] <- fifelse(df$F_g_XX > df$time_XX & df$F_g_XX < T_max_XX + 1 & !is.null(df[[paste0("diff_y_",i,"_XX")]]), 0, df[[paste0("never_change_d_", i, "_XX")]])
     }
 
     ## Creating N^g_t:
@@ -222,7 +221,7 @@ did_multiplegt_dyn_core <- function(
     ###### Creating binary variable indicating whether g is \ell periods away from switch
     ## If the same_switchers option is specified:
     if (same_switchers == TRUE) {
-      df <- df[order(df$group_XX, df$time_XX), ]
+      setorder(df, group_XX, time_XX)
 
       df[, N_g_control_check_XX := 0]
 
@@ -230,7 +229,7 @@ did_multiplegt_dyn_core <- function(
 
         setorder(df,"group_XX","time_XX")
         df[, diff_y_last_XX := outcome_XX - shift(outcome_XX, n = q, type = "lag"), by = group_XX]
-        df[, never_change_d_last_XX := ifelse(!is.na(diff_y_last_XX) & F_g_XX > time_XX, 1, NA_real_)]
+        df[, never_change_d_last_XX := fifelse(!is.na(diff_y_last_XX) & F_g_XX > time_XX, 1, NA_real_)]
 
         if (isTRUE(only_never_switchers)) {
           df[F_g_XX > time_XX & F_g_XX < T_max_XX + 1 & !is.na(diff_y_last_XX), never_change_d_last_XX := 0]
@@ -238,9 +237,9 @@ did_multiplegt_dyn_core <- function(
 
         df[, N_gt_control_last_XX := sum(never_change_d_last_XX * N_gt_XX, na.rm = TRUE), by = c("time_XX", "d_sq_XX", trends_nonparam)]
 
-        df[, N_g_control_last_m_XX := mean(ifelse(time_XX == F_g_XX - 1 + q, N_gt_control_last_XX, NA_real_), na.rm = TRUE), by = group_XX]
+        df[, N_g_control_last_m_XX := mean(fifelse(time_XX == F_g_XX - 1 + q, N_gt_control_last_XX, NA_real_), na.rm = TRUE), by = group_XX]
 
-        df[, diff_y_relev_XX := mean(ifelse(time_XX == F_g_XX - 1 + q, diff_y_last_XX, NA_real_), na.rm = TRUE), by = group_XX]
+        df[, diff_y_relev_XX := mean(fifelse(time_XX == F_g_XX - 1 + q, diff_y_last_XX, NA_real_), na.rm = TRUE), by = group_XX]
 
         df[, N_g_control_check_XX := N_g_control_check_XX + as.numeric(N_g_control_last_m_XX > 0 & !is.na(diff_y_relev_XX))]
       }
@@ -254,7 +253,7 @@ did_multiplegt_dyn_core <- function(
           
           df[, diff_y_last_XX := outcome_XX - shift(outcome_XX, n = q, type = "lead"), by = group_XX]
           
-          df[, never_change_d_last_XX := ifelse(!is.na(diff_y_last_XX) & F_g_XX > time_XX, 1, NA_real_)]
+          df[, never_change_d_last_XX := fifelse(!is.na(diff_y_last_XX) & F_g_XX > time_XX, 1, NA_real_)]
 
           if (isTRUE(only_never_switchers)) {
             df[F_g_XX > time_XX & F_g_XX < T_max_XX + 1 & !is.na(diff_y_last_XX), never_change_d_last_XX := 0]
@@ -262,9 +261,9 @@ did_multiplegt_dyn_core <- function(
     
           df[, N_gt_control_last_XX := sum(never_change_d_last_XX * N_gt_XX, na.rm = TRUE), by = c("time_XX", "d_sq_XX", trends_nonparam)]
                     
-          df[, N_g_control_last_m_XX := mean(ifelse(time_XX == F_g_XX - 1 - q, N_gt_control_last_XX, NA_real_), na.rm = TRUE), by = group_XX]
+          df[, N_g_control_last_m_XX := mean(fifelse(time_XX == F_g_XX - 1 - q, N_gt_control_last_XX, NA_real_), na.rm = TRUE), by = group_XX]
                     
-          df[, diff_y_relev_XX := mean(ifelse(time_XX == F_g_XX - 1 - q, diff_y_last_XX, NA_real_), na.rm = TRUE), by = group_XX]
+          df[, diff_y_relev_XX := mean(fifelse(time_XX == F_g_XX - 1 - q, diff_y_last_XX, NA_real_), na.rm = TRUE), by = group_XX]
           
           df[, N_g_control_check_pl_XX := N_g_control_check_pl_XX + as.numeric(N_g_control_last_m_XX > 0 & !is.na(diff_y_relev_XX))]
           }
@@ -274,7 +273,7 @@ did_multiplegt_dyn_core <- function(
         df$relevant_y_missing_XX <- (is.na(df$outcome_XX) & df$time_XX >= df$F_g_XX - 1 - placebo & df$time_XX <= df$F_g_XX - 1 + effects)
         ## Or if some of the controls are missing:
         if (!is.null(controls)) {
-          df$relevant_y_missing_XX <- ifelse(df$fd_X_all_non_missing_XX == 0 & df$time_XX >= df$F_g_XX - 1 - placebo & df$time_XX <= df$F_g_XX - 1 + effects, 1, df$relevant_y_missing_XX)
+          df$relevant_y_missing_XX <- fifelse(df$fd_X_all_non_missing_XX == 0 & df$time_XX >= df$F_g_XX - 1 - placebo & df$time_XX <= df$F_g_XX - 1 + effects, 1, df$relevant_y_missing_XX)
         }
         
         # df[, cum_fillin_XX := sum(relevant_y_missing_XX, na.rm = TRUE), by = group_XX]
@@ -292,8 +291,8 @@ did_multiplegt_dyn_core <- function(
         df[[paste0("still_switcher_",i,"_XX")]] <- 
             df$F_g_XX - 1 + effects <= df$T_g_XX & df$N_g_control_check_XX == effects
 
-        df[[paste0("distance_to_switch_", i, "_XX")]] <- 
-        ifelse(!is.na(df[[paste0("diff_y_", i, "_XX")]]),
+        df[[paste0("distance_to_switch_", i, "_XX")]] <-
+        fifelse(!is.na(df[[paste0("diff_y_", i, "_XX")]]),
         df[[paste0("still_switcher_", i, "_XX")]] == 1 &
         df$time_XX == df$F_g_XX- 1 + i & i <= df$L_g_XX & df$S_g_XX == increase_XX &
         df[[paste0("N_gt_control_", i, "_XX")]] > 0 & !is.na(df[[paste0("N_gt_control_", i, "_XX")]]), NA)
@@ -304,7 +303,7 @@ did_multiplegt_dyn_core <- function(
         df$relevant_y_missing_XX <- (is.na(df$outcome_XX) & df$time_XX >= df$F_g_XX - 1 & df$time_XX <= df$F_g_XX - 1 + effects)
         ## Or if some of the controls are missing:
         if (!is.null(controls)) {
-          df$relevant_y_missing_XX <- ifelse(df$fd_X_all_non_missing_XX == 0 & df$time_XX >= df$F_g_XX & df$time_XX <= df$F_g_XX - 1 + effects, 1, df$relevant_y_missing_XX)
+          df$relevant_y_missing_XX <- fifelse(df$fd_X_all_non_missing_XX == 0 & df$time_XX >= df$F_g_XX & df$time_XX <= df$F_g_XX - 1 + effects, 1, df$relevant_y_missing_XX)
         }
 
         # df[, cum_fillin_XX := sum(relevant_y_missing_XX, na.rm = TRUE), by = group_XX]
@@ -313,8 +312,8 @@ did_multiplegt_dyn_core <- function(
 
         ## tag switchers who have no missings from F_g_XX-1 to F_g_XX-1+effects
         df[[paste0("still_switcher_",i,"_XX")]] <- df$F_g_XX - 1 + effects <= df$T_g_XX & df$N_g_control_check_XX == effects
-        df[[paste0("distance_to_switch_", i, "_XX")]] <- 
-        ifelse(!is.na(df[[paste0("diff_y_", i, "_XX")]]),
+        df[[paste0("distance_to_switch_", i, "_XX")]] <-
+        fifelse(!is.na(df[[paste0("diff_y_", i, "_XX")]]),
         df[[paste0("still_switcher_", i, "_XX")]] == 1 &
         df$time_XX == df$F_g_XX- 1 + i & i <= df$L_g_XX & df$S_g_XX == increase_XX &
         df[[paste0("N_gt_control_", i, "_XX")]] > 0 & !is.na(df[[paste0("N_gt_control_", i, "_XX")]]), NA)
@@ -348,15 +347,13 @@ did_multiplegt_dyn_core <- function(
     df[, paste0("N", increase_XX,"_t_", i, "_XX") := sum(get(paste0("distance_to_switch_", i, "_wXX")), na.rm = TRUE), by = time_XX]
     df[, paste0("N_dw", increase_XX,"_t_", i, "_XX") := sum(get(paste0("distance_to_switch_", i, "_XX")), na.rm = TRUE), by = time_XX]
 
-    #### Computing N^1_\ell/N^0_\ell.
-    assign(paste0("N",increase_XX,"_",i,"_XX"), 0)
-    assign(paste0("N",increase_XX,"_dw_",i,"_XX"), 0)
-    for (t in t_min_XX:T_max_XX) {
-      assign(paste0("N",increase_XX,"_",i,"_XX"), 
-        get(paste0("N",increase_XX,"_",i,"_XX")) + mean(df[[paste0("N", increase_XX,"_t_", i, "_XX")]][df$time_XX == t], na.rm = TRUE))
-      assign(paste0("N",increase_XX,"_dw_",i,"_XX"), 
-        get(paste0("N",increase_XX,"_dw_",i,"_XX")) + mean(df[[paste0("N_dw", increase_XX,"_t_", i, "_XX")]][df$time_XX == t], na.rm = TRUE))
-    }
+    #### Computing N^1_\ell/N^0_\ell. (vectorized)
+    N_col <- paste0("N", increase_XX, "_t_", i, "_XX")
+    N_dw_col <- paste0("N_dw", increase_XX, "_t_", i, "_XX")
+    assign(paste0("N",increase_XX,"_",i,"_XX"),
+      df[time_XX >= t_min_XX & time_XX <= T_max_XX, .(m = mean(get(N_col), na.rm = TRUE)), by = time_XX][, sum(m, na.rm = TRUE)])
+    assign(paste0("N",increase_XX,"_dw_",i,"_XX"),
+      df[time_XX >= t_min_XX & time_XX <= T_max_XX, .(m = mean(get(N_dw_col), na.rm = TRUE)), by = time_XX][, sum(m, na.rm = TRUE)])
 
     #### Creating N^1_{t,\ell,g}/N^0_{t,\ell,g}: Variable counting number of groups \ell periods away from switch at t, and with same D_{g,1} and trends_nonparam.
     df[, paste0("N",increase_XX,"_t_",i,"_g_XX") := sum(get(paste0("distance_to_switch_",i,"_wXX")), na.rm = TRUE), by = c("time_XX", "d_sq_XX", trends_nonparam)]
@@ -376,7 +373,7 @@ did_multiplegt_dyn_core <- function(
       count_controls <- 0
       for (var in controls) {
         count_controls <- count_controls + 1
-        df[[paste0("diff_X",count_controls,"_", i, "_XX")]]  <- df[[var]] - lag(df[[var]], i)
+        df[, paste0("diff_X",count_controls,"_", i, "_XX") := get(var) - shift(get(var), i), by = group_XX]
 
         ## Computing N_g_t * (X_g_t - X_g_t-l)
         df[[paste0("diff_X",count_controls,"_",i,"_N_XX")]] <- df$N_gt_XX * 
@@ -397,7 +394,7 @@ did_multiplegt_dyn_core <- function(
 
           ## Summing that variable across t, and leaving one non missing observation per g	
           df[, paste0("m",increase_XX,"_",l,"_", count_controls,"_",i,"_XX") := sum(get(paste0("m",increase_XX,"_g_",l,"_", count_controls,"_",i,"_XX")), na.rm = TRUE), by = "group_XX"]
-          df[[paste0("m",increase_XX,"_",l,"_",count_controls,"_",i,"_XX")]] <- ifelse(
+          df[[paste0("m",increase_XX,"_",l,"_",count_controls,"_",i,"_XX")]] <- fifelse(
             df$first_obs_by_gp_XX == 1, df[[paste0("m",increase_XX,"_",l,"_", count_controls,"_",i,"_XX")]], NA)
           
           ## Computing coordinates of vectors M^+_{d,\ell} and M^-_{d,\ell}
@@ -405,9 +402,9 @@ did_multiplegt_dyn_core <- function(
               sum(df[[paste0("m",increase_XX,"_",l,"_", count_controls,"_",i,"_XX")]], na.rm = TRUE) / G_XX          
 
           ## number of groups within each not yet switched cohort
-          df[, dummy_XX := ifelse(F_g_XX > time_XX & d_sq_int_XX == l & !is.na(diff_y_XX) ,1,0)]
+          df[, dummy_XX := fifelse(F_g_XX > time_XX & d_sq_int_XX == l & !is.na(diff_y_XX), 1L, 0L)]
           df[, paste0("E_hat_denom_", count_controls,"_", l, "_XX") := sum(dummy_XX[d_sq_int_XX == l], na.rm = TRUE), by = c("time_XX", "d_sq_int_XX")]
-          df[[paste0("E_hat_denom_", count_controls,"_", l, "_XX")]] <- ifelse(
+          df[[paste0("E_hat_denom_", count_controls,"_", l, "_XX")]] <- fifelse(
             df$d_sq_int_XX == l, df[[paste0("E_hat_denom_", count_controls,"_", l, "_XX")]], NA)
 
           ## Add the indicator for at least two groups in the cohort to E_y_hat_gt_`l'_XX (demeaning is possible)
@@ -435,7 +432,7 @@ did_multiplegt_dyn_core <- function(
           ## Residualize the outcome difference wrt control differences:
           ## Yg,t − Yg,t−l − (Xg,t − Xg,t−l)*\theta_{Dg,1}
           if (get(paste0("useful_res_", l, "_XX")) > 1) {
-            df[[paste0("diff_y_", i, "_XX")]] <- ifelse(df$d_sq_int_XX == l,              
+            df[[paste0("diff_y_", i, "_XX")]] <- fifelse(df$d_sq_int_XX == l,
               df[[paste0("diff_y_", i, "_XX")]] - get(paste0("coefs_sq_", l, "_XX"))[count_controls, 1] * df[[paste0("diff_X", count_controls, "_", i, "_XX")]]
               , df[[paste0("diff_y_", i, "_XX")]])              
 
@@ -526,7 +523,7 @@ did_multiplegt_dyn_core <- function(
     } else {
       # With cluster: unique count of clusters among eligible rows
       if (cluster_dof_col %in% names(df)) df[, (cluster_dof_col) := NULL]
-      df[, (cluster_dof_col) := ifelse(get(dof_ns_col) == 1, get(cluster), NA)]
+      df[, (cluster_dof_col) := fifelse(get(dof_ns_col) == 1, get(cluster), NA)]
       df[!is.na(get(cluster_dof_col)),
           (dof_cohort_col) := uniqueN(get(cluster_dof_col)),
           by = by_cols]
@@ -577,7 +574,7 @@ did_multiplegt_dyn_core <- function(
       } else {
         # With cluster: unique number of clusters among eligible rows
         if (cluster_dofcol %in% names(df)) df[, (cluster_dofcol) := NULL]
-        df[, (cluster_dofcol) := ifelse(get(dof_s_col) == 1, get(cluster), NA)]
+        df[, (cluster_dofcol) := fifelse(get(dof_s_col) == 1, get(cluster), NA)]
         df[!is.na(get(cluster_dofcol)),
           (dof_cohort_col) := uniqueN(get(cluster_dofcol)),
           by = by_cols]
@@ -590,21 +587,21 @@ did_multiplegt_dyn_core <- function(
       ### Denominator of the mean
       df[, paste0("count_cohort_",i,"_s0_t_XX") := sum(N_gt_XX[get(paste0("distance_to_switch_",i,"_XX")) == 1], na.rm = TRUE), by = c("path_0_XX", trends_nonparam)]
 
-      df[[paste0("count_cohort_",i,"_s0_t_XX")]] <- ifelse(
+      df[[paste0("count_cohort_",i,"_s0_t_XX")]] <- fifelse(
             df[[paste0("distance_to_switch_",i,"_XX")]] == 1,
             df[[paste0("count_cohort_",i,"_s0_t_XX")]], NA)
 
       ### Numerator of the mean
       df[, paste0("total_cohort_",i,"_s0_t_XX") := sum(get(paste0("diff_y_",i,"_N_gt_XX"))[get(paste0("distance_to_switch_",i,"_XX")) == 1], na.rm = TRUE), by = c("path_0_XX", trends_nonparam)]
 
-      df[[paste0("total_cohort_",i,"_s0_t_XX")]] <- ifelse(
+      df[[paste0("total_cohort_",i,"_s0_t_XX")]] <- fifelse(
             df[[paste0("distance_to_switch_",i,"_XX")]] == 1,
             df[[paste0("total_cohort_",i,"_s0_t_XX")]], NA)
 
       ### DOF
       df[, paste0("dof_cohort_",i,"_s0_t_XX") := sum(get(paste0("dof_y_",i,"_N_gt_XX"))[get(paste0("distance_to_switch_",i,"_XX")) == 1], na.rm = TRUE), by = c("path_0_XX", trends_nonparam)]
 
-      df[[paste0("dof_cohort_",i,"_s0_t_XX")]] <- ifelse(
+      df[[paste0("dof_cohort_",i,"_s0_t_XX")]] <- fifelse(
             df[[paste0("distance_to_switch_",i,"_XX")]] == 1,
         df[[paste0("dof_cohort_",i,"_s0_t_XX")]], NA)
 
@@ -613,21 +610,21 @@ did_multiplegt_dyn_core <- function(
       ### Denominator of the mean
       df[, paste0("count_cohort_",i,"_s1_t_XX") := sum(N_gt_XX[get(paste0("distance_to_switch_",i,"_XX")) == 1], na.rm = TRUE), by = c("path_1_XX", trends_nonparam)]
 
-      df[[paste0("count_cohort_",i,"_s1_t_XX")]] <- ifelse(
+      df[[paste0("count_cohort_",i,"_s1_t_XX")]] <- fifelse(
             df[[paste0("distance_to_switch_",i,"_XX")]] == 1,
             df[[paste0("count_cohort_",i,"_s1_t_XX")]], NA)
 
       ### Numerator of the mean
       df[, paste0("total_cohort_",i,"_s1_t_XX") := sum(get(paste0("diff_y_",i,"_N_gt_XX"))[get(paste0("distance_to_switch_",i,"_XX")) == 1], na.rm = TRUE), by = c("path_1_XX", trends_nonparam)]
 
-      df[[paste0("total_cohort_",i,"_s1_t_XX")]] <- ifelse(
+      df[[paste0("total_cohort_",i,"_s1_t_XX")]] <- fifelse(
             df[[paste0("distance_to_switch_",i,"_XX")]] == 1,
             df[[paste0("total_cohort_",i,"_s1_t_XX")]], NA)
 
       ### DOF
       df[, paste0("dof_cohort_",i,"_s1_t_XX") := sum(get(paste0("dof_y_",i,"_N_gt_XX"))[get(paste0("distance_to_switch_",i,"_XX")) == 1], na.rm = TRUE), by = c("path_1_XX", trends_nonparam)]
 
-      df[[paste0("dof_cohort_",i,"_s1_t_XX")]] <- ifelse(
+      df[[paste0("dof_cohort_",i,"_s1_t_XX")]] <- fifelse(
             df[[paste0("distance_to_switch_",i,"_XX")]] == 1,
         df[[paste0("dof_cohort_",i,"_s1_t_XX")]], NA)
 
@@ -636,33 +633,33 @@ did_multiplegt_dyn_core <- function(
       ### Denominator of the mean
       df[, paste0("count_cohort_",i,"_s2_t_XX") := sum(N_gt_XX[get(paste0("distance_to_switch_",i,"_XX")) == 1], na.rm = TRUE), by = c(paste0("path_",i,"_XX"), trends_nonparam)]
 
-      df[[paste0("count_cohort_",i,"_s2_t_XX")]] <- ifelse(
+      df[[paste0("count_cohort_",i,"_s2_t_XX")]] <- fifelse(
             df[[paste0("distance_to_switch_",i,"_XX")]] == 1,
             df[[paste0("count_cohort_",i,"_s2_t_XX")]], NA)
 
       ### Numerator of the mean
       df[, paste0("total_cohort_",i,"_s2_t_XX") := sum(get(paste0("diff_y_",i,"_N_gt_XX"))[get(paste0("distance_to_switch_",i,"_XX")) == 1], na.rm = TRUE), by = c(paste0("path_",i,"_XX"), trends_nonparam)]
 
-      df[[paste0("total_cohort_",i,"_s2_t_XX")]] <- ifelse(
+      df[[paste0("total_cohort_",i,"_s2_t_XX")]] <- fifelse(
             df[[paste0("distance_to_switch_",i,"_XX")]] == 1,
             df[[paste0("total_cohort_",i,"_s2_t_XX")]], NA)
 
       ### DOF
       df[, paste0("dof_cohort_",i,"_s2_t_XX") := sum(get(paste0("dof_y_",i,"_N_gt_XX"))[get(paste0("distance_to_switch_",i,"_XX")) == 1], na.rm = TRUE), by = c(paste0("path_",i,"_XX"), trends_nonparam)]
 
-      df[[paste0("dof_cohort_",i,"_s2_t_XX")]] <- ifelse(
+      df[[paste0("dof_cohort_",i,"_s2_t_XX")]] <- fifelse(
             df[[paste0("distance_to_switch_",i,"_XX")]] == 1,
         df[[paste0("dof_cohort_",i,"_s2_t_XX")]], NA)
 
       ## Mean
-      df[[paste0("mean_cohort_",i,"_s_t_XX")]] <- ifelse( df[[paste0("cohort_fullpath_",i,"_XX")]] == 1, df[[paste0("total_cohort_",i,"_s2_t_XX")]] / df[[paste0("count_cohort_",i,"_s2_t_XX")]], NA)
-      df[[paste0("mean_cohort_",i,"_s_t_XX")]] <- ifelse(df[[paste0("cohort_fullpath_",i,"_XX")]] == 0 & df$cohort_fullpath_1_XX == 1, df[[paste0("total_cohort_",i,"_s1_t_XX")]] /df[[paste0("count_cohort_",i,"_s1_t_XX")]], df[[paste0("mean_cohort_",i,"_s_t_XX")]])
-      df[[paste0("mean_cohort_",i,"_s_t_XX")]] <- ifelse(df$cohort_fullpath_1_XX == 0, df[[paste0("total_cohort_",i,"_s0_t_XX")]] /df[[paste0("count_cohort_",i,"_s0_t_XX")]], df[[paste0("mean_cohort_",i,"_s_t_XX")]])
+      df[[paste0("mean_cohort_",i,"_s_t_XX")]] <- fifelse( df[[paste0("cohort_fullpath_",i,"_XX")]] == 1, df[[paste0("total_cohort_",i,"_s2_t_XX")]] / df[[paste0("count_cohort_",i,"_s2_t_XX")]], NA)
+      df[[paste0("mean_cohort_",i,"_s_t_XX")]] <- fifelse(df[[paste0("cohort_fullpath_",i,"_XX")]] == 0 & df$cohort_fullpath_1_XX == 1, df[[paste0("total_cohort_",i,"_s1_t_XX")]] /df[[paste0("count_cohort_",i,"_s1_t_XX")]], df[[paste0("mean_cohort_",i,"_s_t_XX")]])
+      df[[paste0("mean_cohort_",i,"_s_t_XX")]] <- fifelse(df$cohort_fullpath_1_XX == 0, df[[paste0("total_cohort_",i,"_s0_t_XX")]] /df[[paste0("count_cohort_",i,"_s0_t_XX")]], df[[paste0("mean_cohort_",i,"_s_t_XX")]])
 
       ## Counting number of groups for DOF adjustment
-      df[[paste0("dof_cohort_",i,"_s_t_XX")]] <- ifelse( df[[paste0("cohort_fullpath_",i,"_XX")]] == 1, df[[paste0("dof_cohort_",i,"_s2_t_XX")]], NA)
-      df[[paste0("dof_cohort_",i,"_s_t_XX")]] <- ifelse(df[[paste0("cohort_fullpath_",i,"_XX")]] == 0 & df$cohort_fullpath_1_XX == 1, df[[paste0("dof_cohort_",i,"_s1_t_XX")]], df[[paste0("dof_cohort_",i,"_s_t_XX")]])
-      df[[paste0("dof_cohort_",i,"_s_t_XX")]] <- ifelse(df$cohort_fullpath_1_XX == 0, df[[paste0("dof_cohort_",i,"_s0_t_XX")]], df[[paste0("dof_cohort_",i,"_s_t_XX")]])
+      df[[paste0("dof_cohort_",i,"_s_t_XX")]] <- fifelse( df[[paste0("cohort_fullpath_",i,"_XX")]] == 1, df[[paste0("dof_cohort_",i,"_s2_t_XX")]], NA)
+      df[[paste0("dof_cohort_",i,"_s_t_XX")]] <- fifelse(df[[paste0("cohort_fullpath_",i,"_XX")]] == 0 & df$cohort_fullpath_1_XX == 1, df[[paste0("dof_cohort_",i,"_s1_t_XX")]], df[[paste0("dof_cohort_",i,"_s_t_XX")]])
+      df[[paste0("dof_cohort_",i,"_s_t_XX")]] <- fifelse(df$cohort_fullpath_1_XX == 0, df[[paste0("dof_cohort_",i,"_s0_t_XX")]], df[[paste0("dof_cohort_",i,"_s_t_XX")]])
     }
     
     
@@ -718,7 +715,7 @@ did_multiplegt_dyn_core <- function(
       # With cluster: unique number of clusters among rows with dof_ns_s==1
       # Create helper column restricted to those rows
       if (cluster_dofcol %in% names(df)) df[, (cluster_dofcol) := NULL]
-      df[, (cluster_dofcol) := ifelse(get(dof_ns_s_col) == 1, get(cluster), NA)]
+      df[, (cluster_dofcol) := fifelse(get(dof_ns_s_col) == 1, get(cluster), NA)]
       
       df[!is.na(get(cluster_dofcol)),
          (dof_cohort_col) := uniqueN(get(cluster_dofcol)),
@@ -973,18 +970,18 @@ did_multiplegt_dyn_core <- function(
     #### Compute \delta^D for normalized option
     if (normalized == TRUE) {
       if (is.null(continuous)){
-        df$sum_temp_XX <- ifelse(df$time_XX >= df$F_g_XX & df$time_XX <= df$F_g_XX - 1 + i & df$S_g_XX == increase_XX, df$treatment_XX - df$d_sq_XX, NA)
+        df$sum_temp_XX <- fifelse(df$time_XX >= df$F_g_XX & df$time_XX <= df$F_g_XX - 1 + i & df$S_g_XX == increase_XX, df$treatment_XX - df$d_sq_XX, NA)
       } else {
 	      ## Redefine this with original treatment if continuous is defined (treatment was binarized and staggerized)
-        df$sum_temp_XX <- ifelse(df$time_XX >= df$F_g_XX & df$time_XX <= df$F_g_XX - 1 + i & df$S_g_XX == increase_XX, df$treatment_XX_orig - df$d_sq_XX_orig, NA)
+        df$sum_temp_XX <- fifelse(df$time_XX >= df$F_g_XX & df$time_XX <= df$F_g_XX - 1 + i & df$S_g_XX == increase_XX, df$treatment_XX_orig - df$d_sq_XX_orig, NA)
       }
       df[, paste0("sum_treat_until_",i,"_XX") := sum(sum_temp_XX, na.rm = TRUE), by = group_XX]
       df$sum_temp_XX <- NULL
-      df[[paste0("delta_D_",i,"_cum_temp_XX")]] <- ifelse(
+      df[[paste0("delta_D_",i,"_cum_temp_XX")]] <- fifelse(
         df[[paste0("distance_to_switch_",i,"_XX")]] == 1,
         (df$N_gt_XX/get(paste0("N",increase_XX,"_",i,"_XX"))) * (
           df$S_g_XX * df[[paste0("sum_treat_until_",i,"_XX")]] +
-          (1 - df$S_g_XX) * (-df[[paste0("sum_treat_until_",i,"_XX")]]) 
+          (1 - df$S_g_XX) * (-df[[paste0("sum_treat_until_",i,"_XX")]])
         ), NA)
       assign(paste0("delta_norm_",i,"_XX"), sum(df[[paste0("delta_D_",i,"_cum_temp_XX")]], na.rm = TRUE))    
     }
@@ -1153,18 +1150,13 @@ did_multiplegt_dyn_core <- function(
         df[, paste0("N", increase_XX,"_t_placebo_", i, "_XX") := sum(get(paste0("dist_to_switch_pl_", i, "_wXX")), na.rm = TRUE), by = time_XX]
         df[, paste0("N", increase_XX,"_t_placebo_", i, "_dwXX") := sum(get(paste0("dist_to_switch_pl_", i, "_XX")), na.rm = TRUE), by = time_XX]
 
-        #### Computing N^1_\ell/N^0_\ell. for the placebos
-        ## Initializing the N1_`i'_XX/N0_`i'_XX scalar at 0. 
-        assign(paste0("N",increase_XX,"_placebo_",i,"_XX"), 0)
-        assign(paste0("N",increase_XX,"_dw_placebo_",i,"_XX"), 0)
-        for (t in t_min_XX:T_max_XX) {
-          assign(paste0("N",increase_XX,"_placebo_",i,"_XX"), 
-            get(paste0("N",increase_XX,"_placebo_",i,"_XX")) + mean(df[[paste0("N", increase_XX,"_t_placebo_", i, "_XX")]][df$time_XX == t], na.rm = TRUE))
-          assign(paste0("N",increase_XX,"_dw_placebo_",i,"_XX"), 
-            get(paste0("N",increase_XX,"_dw_placebo_",i,"_XX")) + mean(df[[paste0("N", increase_XX,"_t_placebo_", i, "_dwXX")]][df$time_XX == t], na.rm = TRUE))
-        }
-        assign(paste0("N",increase_XX,"_placebo_",i,"_XX"), get(paste0("N",increase_XX,"_placebo_",i,"_XX")))
-        assign(paste0("N",increase_XX,"_dw_placebo_",i,"_XX"), get(paste0("N",increase_XX,"_dw_placebo_",i,"_XX")))
+        #### Computing N^1_\ell/N^0_\ell. for the placebos (vectorized)
+        N_pl_col <- paste0("N", increase_XX, "_t_placebo_", i, "_XX")
+        N_dw_pl_col <- paste0("N", increase_XX, "_t_placebo_", i, "_dwXX")
+        assign(paste0("N",increase_XX,"_placebo_",i,"_XX"),
+          df[time_XX >= t_min_XX & time_XX <= T_max_XX, .(m = mean(get(N_pl_col), na.rm = TRUE)), by = time_XX][, sum(m, na.rm = TRUE)])
+        assign(paste0("N",increase_XX,"_dw_placebo_",i,"_XX"),
+          df[time_XX >= t_min_XX & time_XX <= T_max_XX, .(m = mean(get(N_dw_pl_col), na.rm = TRUE)), by = time_XX][, sum(m, na.rm = TRUE)])
 
         ## Creating N^1_{t,\ell,g}/N^0_{t,\ell,g} for the placebos: Variable counting number of groups \ell periods away from switch at t, and with same D_{g,1} and trends_nonparam.
         df[, paste0("N",increase_XX,"_t_placebo_",i,"_g_XX") := sum(get(paste0("dist_to_switch_pl_",i,"_wXX")), na.rm = TRUE), by =  c("time_XX", "d_sq_XX", trends_nonparam)]
@@ -1179,7 +1171,7 @@ did_multiplegt_dyn_core <- function(
           count_controls <- 0
           for (var in controls) {
             count_controls <- count_controls + 1
-            df[[paste0("diff_X",count_controls,"_placebo_",i,"_XX")]]  <- lag(df[[var]],2*i)-lag(df[[var]], i)
+            df[, paste0("diff_X",count_controls,"_placebo_",i,"_XX") := shift(get(var), 2*i) - shift(get(var), i), by = group_XX]
             ## Computing N_g_t * (X_g_t - X_g_t-l)
             df[[paste0("diff_X",count_controls,"_pl_",i,"_N_XX")]] <- df$N_gt_XX * 
                 df[[paste0("diff_X",count_controls,"_placebo_",i,"_XX")]]
@@ -1191,15 +1183,15 @@ did_multiplegt_dyn_core <- function(
                 (i <= df$T_g_XX - 2 & df$d_sq_int_XX == l) * (G_XX / get(paste0("N",increase_XX,"_placebo_",i,"_XX"))) * ((df[[paste0("dist_to_switch_pl_",i,"_XX")]] - (df[[paste0("N",increase_XX,"_t_placebo_",i,"_g_XX")]]/df[[paste0("N_gt_control_placebo_",i,"_XX")]]) * df[[paste0("never_change_d_pl_",i,"_XX")]]) * (df$time_XX >= i + 1 & df$time_XX <= df$T_g_XX) * (df[[paste0("diff_X",count_controls,"_pl_",i,"_N_XX")]]))
 
               df[, paste0("m_pl",increase_XX,"_",l,"_", count_controls,"_",i,"_XX") := sum(get(paste0("m",increase_XX,"_pl_g_",l,"_", count_controls,"_",i,"_XX")), na.rm = TRUE), by = group_XX]
-              df[[paste0("m_pl",increase_XX,"_",l,"_",count_controls,"_",i,"_XX")]] <- ifelse(df$first_obs_by_gp_XX == 1, df[[paste0("m_pl",increase_XX,"_",l,"_", count_controls,"_",i,"_XX")]], NA)
+              df[[paste0("m_pl",increase_XX,"_",l,"_",count_controls,"_",i,"_XX")]] <- fifelse(df$first_obs_by_gp_XX == 1, df[[paste0("m_pl",increase_XX,"_",l,"_", count_controls,"_",i,"_XX")]], NA)
               
               df[[paste0("M_pl",increase_XX,"_",l,"_", count_controls,"_",i,"_XX")]] <- 
                   sum(df[[paste0("m_pl",increase_XX,"_",l,"_", count_controls,"_",i,"_XX")]], na.rm = TRUE) / G_XX          
 
               if (get(paste0("useful_res_", l, "_XX")) > 1) {
-                df[[paste0("diff_y_pl_", i, "_XX")]] <- ifelse(df$d_sq_int_XX == l,              
+                df[[paste0("diff_y_pl_", i, "_XX")]] <- fifelse(df$d_sq_int_XX == l,
                   df[[paste0("diff_y_pl_", i, "_XX")]] - get(paste0("coefs_sq_", l, "_XX"))[count_controls, 1] * df[[paste0("diff_X", count_controls, "_placebo_", i, "_XX")]]
-                  , df[[paste0("diff_y_pl_", i, "_XX")]])              
+                  , df[[paste0("diff_y_pl_", i, "_XX")]])
                 df[[paste0("in_brackets_pl_",l,"_",count_controls,"_XX")]] <- 0
 
               }
@@ -1275,7 +1267,7 @@ did_multiplegt_dyn_core <- function(
         } else {
           # with cluster: unique clusters among rows with dof_ns_pl==1
           clust_dof <- sprintf("cluster_dof_pl_%s_ns_XX", i)
-          df[, (clust_dof) := ifelse(get(col_dof_ns) == 1L, get(cluster), NA)]
+          df[, (clust_dof) := fifelse(get(col_dof_ns) == 1L, get(cluster), NA)]
           
           agg_ns <- df[!is.na(get(clust_dof)),
                        .(tmp_dof = uniqueN(get(clust_dof))),
@@ -1327,7 +1319,7 @@ did_multiplegt_dyn_core <- function(
              by = group_keys_s]
         } else {
           clust_dof_s <- sprintf("cluster_dof_pl_%s_s_XX", i)
-          df[, (clust_dof_s) := ifelse(get(col_dof_s) == 1L, get(cluster), NA)]
+          df[, (clust_dof_s) := fifelse(get(col_dof_s) == 1L, get(cluster), NA)]
           
           agg_s <- df[!is.na(get(clust_dof_s)),
                       .(tmp_dof = uniqueN(get(clust_dof_s))),
@@ -1384,7 +1376,7 @@ did_multiplegt_dyn_core <- function(
           col_dof_union <- col_dof_any
           clust_dof_any <- sprintf("cluster_dof_pl_%s_ns_s_XX", i)
           
-          df[, (clust_dof_any) := ifelse(get(col_dof_union) == 1, get(cluster), NA)]
+          df[, (clust_dof_any) := fifelse(get(col_dof_union) == 1, get(cluster), NA)]
           
           # Drop previous col_dof_coh_any if exists
           if (col_dof_coh_any %chin% names(df)) {
@@ -1416,7 +1408,7 @@ did_multiplegt_dyn_core <- function(
           df[, paste0("U_Gg_placebo_",i,"_XX") := sum(get(paste0("U_Gg_pl_",i,"_temp_XX")), na.rm = TRUE), by = group_XX]
           df[[paste0("U_Gg_placebo_",i,"_XX")]] <- df[[paste0("U_Gg_placebo_",i,"_XX")]] * df$first_obs_by_gp_XX
 
-          df[[paste0("count",i,"_pl_core_XX")]] <- ifelse(!is.na(df[[paste0("U_Gg_pl_",i,"_temp_XX")]]) & df[[paste0("U_Gg_pl_",i,"_temp_XX")]] != 0 | df[[paste0("U_Gg_pl_",i,"_temp_XX")]] == 0 & df[[paste0("diff_y_pl_",i,"_XX")]]==0 & (df[[paste0("dist_to_switch_pl_",i,"_XX")]] != 0 | df[[paste0("N",increase_XX,"_t_placebo_",i,"_g_XX")]] != 0 & df[[paste0("never_change_d_pl_",i,"_XX")]] != 0), df$N_gt_XX, 0)
+          df[[paste0("count",i,"_pl_core_XX")]] <- fifelse(!is.na(df[[paste0("U_Gg_pl_",i,"_temp_XX")]]) & df[[paste0("U_Gg_pl_",i,"_temp_XX")]] != 0 | df[[paste0("U_Gg_pl_",i,"_temp_XX")]] == 0 & df[[paste0("diff_y_pl_",i,"_XX")]]==0 & (df[[paste0("dist_to_switch_pl_",i,"_XX")]] != 0 | df[[paste0("N",increase_XX,"_t_placebo_",i,"_g_XX")]] != 0 & df[[paste0("never_change_d_pl_",i,"_XX")]] != 0), df$N_gt_XX, 0)
           df[[paste0("count",i,"_pl_core_XX")]] <- as.numeric(df[[paste0("count",i,"_pl_core_XX")]])
 
           df[[paste0("U_Gg_pl_",i,"_temp_var_XX")]] <- 0
@@ -1454,17 +1446,17 @@ did_multiplegt_dyn_core <- function(
         ###### 7. Computing adjustements for the normalized and trends_lin options for placebos (similar to part 4, not commented) 
         if (normalized == TRUE) {
           if (is.null(continuous)) {
-            df$sum_temp_pl_XX <- ifelse(df$time_XX >= df$F_g_XX & df$time_XX <= df$F_g_XX - 1 + i & df$S_g_XX == increase_XX, df$treatment_XX - df$d_sq_XX, NA) ## FELIX 18.03.2025 (delete the !is.na(diff_y_pl_`i'_XX) condition)
+            df$sum_temp_pl_XX <- fifelse(df$time_XX >= df$F_g_XX & df$time_XX <= df$F_g_XX - 1 + i & df$S_g_XX == increase_XX, df$treatment_XX - df$d_sq_XX, NA) ## FELIX 18.03.2025 (delete the !is.na(diff_y_pl_`i'_XX) condition)
           } else {
-            df$sum_temp_pl_XX <- ifelse(df$time_XX >= df$F_g_XX & df$time_XX <= df$F_g_XX - 1 + i & df$S_g_XX == increase_XX, df$treatment_XX_orig - df$d_sq_XX_orig, NA) ## FELIX 18.03.2025 (delete the !is.na(diff_y_pl_`i'_XX) condition)
+            df$sum_temp_pl_XX <- fifelse(df$time_XX >= df$F_g_XX & df$time_XX <= df$F_g_XX - 1 + i & df$S_g_XX == increase_XX, df$treatment_XX_orig - df$d_sq_XX_orig, NA) ## FELIX 18.03.2025 (delete the !is.na(diff_y_pl_`i'_XX) condition)
           }
           df[, paste0("sum_treat_until_",i,"_pl_XX") := sum(sum_temp_pl_XX, na.rm = TRUE), by = group_XX]
           df$sum_temp_pl_XX <- NULL
-          df[[paste0("delta_D_pl_",i,"_cum_temp_XX")]] <- ifelse(
+          df[[paste0("delta_D_pl_",i,"_cum_temp_XX")]] <- fifelse(
             df[[paste0("dist_to_switch_pl_",i,"_XX")]] == 1,
             (df$N_gt_XX/get(paste0("N",increase_XX,"_placebo_",i,"_XX"))) * (
               df$S_g_XX * df[[paste0("sum_treat_until_",i,"_pl_XX")]] +
-              (1 - df$S_g_XX) * (-df[[paste0("sum_treat_until_",i,"_pl_XX")]]) 
+              (1 - df$S_g_XX) * (-df[[paste0("sum_treat_until_",i,"_pl_XX")]])
             ), NA)
           assign(paste0("delta_norm_pl_",i,"_XX"), sum(df[[paste0("delta_D_pl_",i,"_cum_temp_XX")]], na.rm = TRUE))    
         }

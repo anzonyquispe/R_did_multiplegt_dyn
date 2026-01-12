@@ -27,8 +27,7 @@
 #' @param data_only data_only
 #' @import data.table
 #' @importFrom dplyr lag
-#' @importFrom matlib Ginv 
-#' @importFrom plm pdata.frame make.pbalanced
+#' @importFrom matlib Ginv
 #' @importFrom utils write.csv
 #' @importFrom stats pchisq qnorm sd weighted.mean as.formula df.residual lm nobs qt relevel
 #' @importFrom stats na.omit predict setNames
@@ -162,22 +161,21 @@ suppressWarnings({
   ## Dropping observations with missing group or time
   df <- df[ !is.na(df$group) & !is.na(df$time) ] 
   ## Dropping observations with missing controls
-  if (!is.null(controls)) {
-    for (var in controls) {
-      df <- subset(df, !is.na(df[[var]]))
-    }
+  # Optimized: Single data.table filter instead of loop with subset()
+  if (!is.null(controls) && length(controls) > 0) {
+    df <- na.omit(df, cols = controls)
   }
 
   #### Further sample selection steps
   ## Dropping observations with a missing clustering variable
   if (!is.null(cluster)) {
-    df <- subset(df, !is.na(df$cluster_XX))
+    df <- df[!is.na(cluster_XX)]
   }
 
   ## Dropping groups with always missing treatment or outcomes
   df[, mean_D := mean(treatment, na.rm = TRUE), by = group]
   df[, mean_Y := mean(outcome, na.rm = TRUE), by = group]
-  df <- subset(df, !is.na(df$mean_Y) & !is.na(df$mean_D))
+  df <- df[!is.na(mean_Y) & !is.na(mean_D)]
   df$mean_Y <- df$mean_D <- NULL
 
   #### Predict_het option for heterogeneous treatment effects analysis
@@ -212,7 +210,7 @@ suppressWarnings({
   } else{
     df$weight_XX <- df[[weight]]
   }
-  df$weight_XX <- ifelse(is.na(df$weight_XX), 0, df$weight_XX)
+  df[, weight_XX := fifelse(is.na(weight_XX), 0, weight_XX)]
 
   ## Checking if the data has to be collapsed
   df$counter_temp <- 1
@@ -222,7 +220,7 @@ suppressWarnings({
 
   ## Collapsing the data if necessary
   if (aggregated_data != 1) {
-    df$weight_XX <- ifelse(is.na(df$treatment), 0, df$weight_XX)
+    df[, weight_XX := fifelse(is.na(treatment), 0, weight_XX)]
     if (is.null(cluster)) {
       df$cluster_XX <- 1
     }
@@ -256,9 +254,9 @@ suppressWarnings({
 
 
   # first/last date where D not missing
-  df[, time_d_nonmiss_XX := ifelse(!is.na(treatment_XX), time_XX, NA_real_)]
+  df[, time_d_nonmiss_XX := fifelse(!is.na(treatment_XX), time_XX, NA_real_)]
   # first date where Y not missing
-  df[, time_y_nonmiss_XX := ifelse(!is.na(outcome_XX),   time_XX, NA_real_)]
+  df[, time_y_nonmiss_XX := fifelse(!is.na(outcome_XX), time_XX, NA_real_)]
 
   # per-group mins & max like grp.transform('min'/'max', skipna=True)
   df[, `:=`(
@@ -278,7 +276,7 @@ suppressWarnings({
 
   # first date D missing *after* Y seen
   df[, time_d_miss_XX :=
-      ifelse(is.na(treatment_XX) & time_XX >= min_time_y_nonmiss_XX,
+      fifelse(is.na(treatment_XX) & time_XX >= min_time_y_nonmiss_XX,
               time_XX, NA_real_)]
 
   # per-group: min_time_d_miss_aft_ynm_XX = grp['time_d_miss_XX'].transform('min')
@@ -296,7 +294,7 @@ suppressWarnings({
 
   # d_sq_temp_XX = treatment_XX at min_time_d_nonmiss_XX
   df[, d_sq_temp_XX :=
-      ifelse(time_XX == min_time_d_nonmiss_XX, treatment_XX, NA_real_)]
+      fifelse(time_XX == min_time_d_nonmiss_XX, treatment_XX, NA_real_)]
 
   # d_sq_XX = group mean of that (only one non-NA per group, so it's the baseline)
   df[, d_sq_XX := {
@@ -344,16 +342,15 @@ suppressWarnings({
   #### Counting number of groups
   # G_XX <- max(df$group_XX, na.rm = TRUE)
 
-  #### Ever changed treatment 
-  df$ever_change_d_XX <- abs(df$diff_from_sq_XX) > 0 & !is.na(df$treatment_XX) 
-  for (i in 2:T_XX) {
-    df$ever_change_d_XX[shift(df$ever_change_d_XX) == 1 & df$group_XX == shift(df$group_XX) & df$time_XX == i] <- 1
-  }
+  #### Ever changed treatment
+  df$ever_change_d_XX <- abs(df$diff_from_sq_XX) > 0 & !is.na(df$treatment_XX)
+  # Optimized: Use data.table cummax instead of loop
+  setorder(df, group_XX, time_XX)
+  df[, ever_change_d_XX := as.integer(cummax(as.integer(ever_change_d_XX))), by = group_XX]
 
-  df <- data.table(df)
   #### Creating date of the first treatment change
-  df <- df[order(df$group_XX, df$time_XX), ]
-  df$temp_F_g_XX <- ifelse(df$ever_change_d_XX == 1 & shift(df$ever_change_d_XX) == 0, df$time_XX, 0)
+  # Note: df is already data.table and sorted from cummax operation above
+  df[, temp_F_g_XX := fifelse(ever_change_d_XX == 1 & shift(ever_change_d_XX) == 0, time_XX, 0L)]
   df[, F_g_XX := max(temp_F_g_XX, na.rm = TRUE), by = group_XX]
   df$temp_F_g_XX <- NULL
 
@@ -372,9 +369,9 @@ suppressWarnings({
   df$d_sq_int_XX <- as.numeric(as.character(df$d_sq_int_XX))
 
   #### Dropping values of baseline treatment such that there is no variance in F_g within
-  df <- data.table(df)
+  # df is already a data.table
   df[, var_F_g_XX := sd(F_g_XX), by = c( "d_sq_XX", trends_nonparam)]
-  df <- subset(df, df$var_F_g_XX > 0)
+  df <- df[var_F_g_XX > 0]
   df$var_F_g_XX <- NULL
 
   #### Counting number of groups
@@ -389,7 +386,7 @@ suppressWarnings({
   #### This means the panel is no longer balanced, though it is balanced within values of the baseline treatment
   df$never_change_d_XX <- 1 - df$ever_change_d_XX 
   df[, controls_time_XX := max(never_change_d_XX), by = c("time_XX", "d_sq_XX", trends_nonparam)]
-  df <- subset(df, df$controls_time_XX > 0)
+  df <- df[controls_time_XX > 0]
 
   #### Computing t_min, T_max and adjusting F_g by last period pluc one for those that never change treatment
   t_min_XX <- min(df$time_XX)
@@ -403,11 +400,10 @@ suppressWarnings({
   #### If that date is before the first period when g's treatment changes, we do not know when g's treatment has changed for the first time. Then, a conservative option is to drop all of g's outcomes starting at FMD_g.
 
   if (drop_if_d_miss_before_first_switch == TRUE) {
-    df$outcome_XX <- 
-      ifelse(
-        ifelse(!is.na(df$min_time_d_miss_aft_ynm_XX),
-              df$min_time_d_miss_aft_ynm_XX < df$F_g_XX & df$time_XX >= df$min_time_d_miss_aft_ynm_XX, FALSE), 
-        NA, df$outcome_XX)
+    df[, outcome_XX := fifelse(
+        fifelse(!is.na(min_time_d_miss_aft_ynm_XX),
+              min_time_d_miss_aft_ynm_XX < F_g_XX & time_XX >= min_time_d_miss_aft_ynm_XX, FALSE),
+        NA_real_, outcome_XX)]
     ## RA 23/06/25 : do not filter if min_time_d_miss_aft_ynm_XX is na
   }
 
@@ -415,7 +411,7 @@ suppressWarnings({
   #### Let FD_g and LD_g respectively denote the first and last period where a group's treatment is non missing. Let FY_g denote the first period where a group's outcome is non missing.
   #### For groups that experience at least one treatment change, let LDBF_g denote the last date before F_g where g's treatment is non missing. We have FD_g<=LDBF_g<F_g<=LD_g, and we will deal with missing treatments depending on when they occur with respect to those four dates. 
 
-  df$last_obs_D_bef_switch_t_XX <- ifelse(df$time_XX < df$F_g_XX & !is.na(df$treatment_XX), df$time_XX, NA)
+  df[, last_obs_D_bef_switch_t_XX := fifelse(time_XX < F_g_XX & !is.na(treatment_XX), time_XX, NA_real_)]
   df[, last_obs_D_bef_switch_XX := max(last_obs_D_bef_switch_t_XX, na.rm = TRUE), by = group_XX]
 
   #### For groups that do not experience a treatment change, we just have FD_g<=LD_g, and we will deal with missing treatments depending on when they occur with respect to those two dates.
@@ -425,28 +421,28 @@ suppressWarnings({
 
   #### For groups that experience a treatment change, if D_gt missing at FD_g<t<LDBF_g, we replace their missing treatment by their status-quo treatment. Again, this is a liberal convention, so we give the user the option to not use those observations, with drop_if_d_miss_before_first_switch option.
 
-  df$treatment_XX <- ifelse(df$F_g_XX < T_max_XX + 1 & is.na(df$treatment_XX) & df$time_XX < df$last_obs_D_bef_switch_XX & df$time_XX > df$min_time_d_nonmiss_XX, df$d_sq_XX, df$treatment_XX)
+  df[, treatment_XX := fifelse(F_g_XX < T_max_XX + 1 & is.na(treatment_XX) & time_XX < last_obs_D_bef_switch_XX & time_XX > min_time_d_nonmiss_XX, d_sq_XX, treatment_XX)]
 
   #### For groups that experience a treatment change, if D_gt missing at LDBF_g<t<F_g (equivalent to LDBF_g<F_g-1), we cannot know the exact date when their treatment has changed, even in a binary and staggered design. Therefore, we set their outcomes at missing starting at LDBF_g+1. We also redefine their F_g as T+1 because they are effectively control groups. We also define the trunc_control_XX as LDBF_g+1 for them, because they can only be used as controls till that date.
 
-  df$outcome_XX <- ifelse(df$F_g_XX < T_max_XX + 1 & df$time_XX > df$last_obs_D_bef_switch_XX & df$last_obs_D_bef_switch_XX < df$F_g_XX - 1, NA, df$outcome_XX)
-  df$trunc_control_XX <- ifelse(df$F_g_XX < T_max_XX + 1 & df$last_obs_D_bef_switch_XX < df$F_g_XX - 1, df$last_obs_D_bef_switch_XX + 1, NA)
+  df[, outcome_XX := fifelse(F_g_XX < T_max_XX + 1 & time_XX > last_obs_D_bef_switch_XX & last_obs_D_bef_switch_XX < F_g_XX - 1, NA_real_, outcome_XX)]
+  df[, trunc_control_XX := fifelse(F_g_XX < T_max_XX + 1 & last_obs_D_bef_switch_XX < F_g_XX - 1, last_obs_D_bef_switch_XX + 1, NA_real_)]
   df$F_g_XX[df$F_g_XX < T_max_XX + 1 & df$last_obs_D_bef_switch_XX < df$F_g_XX - 1] <- T_max_XX + 1
 
   #### For groups that experience a treatment change, if D_gt missing at F_g<t, we replace their missing treatment by D(g,F_g). This is again a liberal convention, but it is innocuous for the reduced-form parameters DID_l, so we do not give the user the option to overrule it (Note that overruling it could make the same_switchers option fail)
 
-  df$d_F_g_temp_XX <- ifelse(df$time_XX == df$F_g_XX, df$treatment_XX, NA)
+  df[, d_F_g_temp_XX := fifelse(time_XX == F_g_XX, treatment_XX, NA_real_)]
   df[, d_F_g_XX := mean(d_F_g_temp_XX, na.rm = TRUE), by = group_XX]
-  df$treatment_XX <- ifelse(df$F_g_XX < T_max_XX + 1 & is.na(df$treatment_XX) & df$time_XX > df$F_g_XX & df$last_obs_D_bef_switch_XX == df$F_g_XX - 1, df$d_F_g_XX, df$treatment_XX)
+  df[, treatment_XX := fifelse(F_g_XX < T_max_XX + 1 & is.na(treatment_XX) & time_XX > F_g_XX & last_obs_D_bef_switch_XX == F_g_XX - 1, d_F_g_XX, treatment_XX)]
 
   #### *For groups that do not experience a treatment change, if D_gt missing at FD_g<t<LD_g, we replace their missing treatment by D_g1. This is again a liberal convention, so we give the user the option to not use those observations, wi1th drop_if_d_miss_before_first_switch option.
 
-  df$treatment_XX <- ifelse(df$F_g_XX == T_max_XX + 1 & is.na(df$treatment_XX) & df$time_XX > df$min_time_d_nonmiss_XX & df$time_XX < df$max_time_d_nonmiss_XX, df$d_sq_XX, df$treatment_XX)
+  df[, treatment_XX := fifelse(F_g_XX == T_max_XX + 1 & is.na(treatment_XX) & time_XX > min_time_d_nonmiss_XX & time_XX < max_time_d_nonmiss_XX, d_sq_XX, treatment_XX)]
 
   #### For groups that do not experience a treatment change, we replace all their outcomes by missing at t>LD_g. Even in a binary and staggered design, we cannot infer their treatment at t>LD_g.
 
   df$outcome_XX[df$F_g_XX == T_max_XX + 1 &df$time_XX > df$max_time_d_nonmiss_XX] <- NA
-  df$trunc_control_XX <- ifelse(df$F_g_XX == T_max_XX + 1, df$max_time_d_nonmiss_XX + 1, df$trunc_control_XX)
+  df[, trunc_control_XX := fifelse(F_g_XX == T_max_XX + 1, max_time_d_nonmiss_XX + 1, trunc_control_XX)]
 
   #### Store the outcome in levels, will be useful later when predict_het and trends_lin specified
   if (!is.null(predict_het)) {
@@ -475,13 +471,13 @@ suppressWarnings({
 
 
   #### Balancing the panel
+  # Optimized: Use data.table CJ (cross join) instead of plm::make.pbalanced
   df$joint_trends_XX <- NULL
-  df <- pdata.frame(df, index = c("group_XX", "time_XX")) 
-  df <- make.pbalanced(df, balance.type = "fill")
-  df$time_XX <- as.numeric(as.character(df$time_XX))
-  df$group_XX <- as.numeric(as.character(df$group_XX))
-
-  df <- data.table(df)
+  all_groups <- unique(df$group_XX)
+  all_times <- unique(df$time_XX)
+  grid <- CJ(group_XX = all_groups, time_XX = all_times)
+  df <- merge(grid, df, by = c("group_XX", "time_XX"), all.x = TRUE)
+  setDT(df)
 
   df[, d_sq_XX := mean(d_sq_XX, na.rm = TRUE), by = group_XX]
   df[, d_sq_int_XX := mean(d_sq_int_XX, na.rm = TRUE), by = group_XX]
@@ -489,16 +485,16 @@ suppressWarnings({
 
   #### Defining N_gt, the weight of each (g,t) cell
   df$N_gt_XX <- 1
-  df$N_gt_XX <- ifelse(is.na(df$outcome_XX) | is.na(df$treatment_XX), 0, df$weight_XX * df$N_gt_XX)
+  df[, N_gt_XX := fifelse(is.na(outcome_XX) | is.na(treatment_XX), 0, weight_XX * N_gt_XX)]
 
   #### Determining last period where g still has a control group:
   #### There is still a group with same 
   #### treatment as g's in period 1 and whose treatment has not changed since 
   #### start of panel. Definition adapted from the paper, to account for 
   #### imbalanced panel.
-  df$F_g_trunc_XX <- ifelse(df$F_g_XX < df$trunc_control_XX, df$F_g_XX, df$trunc_control_XX)
-  df$F_g_trunc_XX <- ifelse(is.na(df$trunc_control_XX), df$F_g_XX, df$F_g_trunc_XX)
-  df$F_g_trunc_XX <- ifelse(is.na(df$F_g_XX), df$trunc_control_XX, df$F_g_trunc_XX)
+  df[, F_g_trunc_XX := fifelse(F_g_XX < trunc_control_XX, F_g_XX, trunc_control_XX)]
+  df[, F_g_trunc_XX := fifelse(is.na(trunc_control_XX), F_g_XX, F_g_trunc_XX)]
+  df[, F_g_trunc_XX := fifelse(is.na(F_g_XX), trunc_control_XX, F_g_trunc_XX)]
 
   df[, T_g_XX := max(F_g_trunc_XX, na.rm = TRUE), by = c("d_sq_XX", trends_nonparam)]
   df$T_g_XX <- df$T_g_XX - 1
@@ -510,15 +506,15 @@ suppressWarnings({
   #### For never-switchers, S_g is undefined.
   #### Definition of S_g matches that in paper, unless dont_drop_larger_lower specified.
 
-  df$treatment_XX_v1 <- ifelse(df$time_XX >= df$F_g_XX & df$time_XX <= df$T_g_XX, df$treatment_XX, NA)
+  df[, treatment_XX_v1 := fifelse(time_XX >= F_g_XX & time_XX <= T_g_XX, treatment_XX, NA_real_)]
 
   # Assuming df is your data.table
-  df[, avg_post_switch_treat_XX_temp := 
-      ifelse(time_XX >= F_g_XX & time_XX <= T_g_XX, treatment_XX, NA_real_)]
+  df[, avg_post_switch_treat_XX_temp :=
+      fifelse(time_XX >= F_g_XX & time_XX <= T_g_XX, treatment_XX, NA_real_)]
 
   # Count of non-missing treatment observations in the post-switch period
-  df[, count_time_post_switch_XX_temp := 
-      ifelse(time_XX >= F_g_XX & time_XX <= T_g_XX, !is.na(treatment_XX), FALSE)]
+  df[, count_time_post_switch_XX_temp :=
+      fifelse(time_XX >= F_g_XX & time_XX <= T_g_XX, !is.na(treatment_XX), FALSE)]
 
   # Sum within group
   df[, avg_post_switch_treat_XX_temp := sum(avg_post_switch_treat_XX_temp, na.rm = TRUE), by = group_XX]
@@ -554,27 +550,27 @@ suppressWarnings({
   #### track if a group is switcher in or switcher out.
 
   if (is.null(continuous)) {
-    df <- subset(df, !(df$avg_post_switch_treat_XX == df$d_sq_XX & !is.na(df$avg_post_switch_treat_XX) & df$F_g_XX != df$T_g_XX + 1 & !is.na(df$F_g_XX) & !is.na(df$T_g_XX)))
-    df$S_g_XX <- as.numeric(df$avg_post_switch_treat_XX > df$d_sq_XX)
-    df$S_g_XX <- ifelse(df$F_g_XX != T_max_XX + 1, df$S_g_XX, NA)
+    df <- df[!(avg_post_switch_treat_XX == d_sq_XX & !is.na(avg_post_switch_treat_XX) & F_g_XX != T_g_XX + 1 & !is.na(F_g_XX) & !is.na(T_g_XX))]
+    df[, S_g_XX := as.numeric(avg_post_switch_treat_XX > d_sq_XX)]
+    df[, S_g_XX := fifelse(F_g_XX != T_max_XX + 1, S_g_XX, NA_real_)]
   } else {
-    df <- subset(df, !(df$avg_post_switch_treat_XX == df$d_sq_XX_orig  & !is.na(df$avg_post_switch_treat_XX) & df$F_g_XX != df$T_g_XX + 1 & !is.na(df$F_g_XX) & !is.na(df$T_g_XX)))
-    df$S_g_XX <- as.numeric(df$avg_post_switch_treat_XX > df$d_sq_XX_orig)
-    df$S_g_XX <- ifelse(df$F_g_XX != T_max_XX + 1, df$S_g_XX, NA)
+    df <- df[!(avg_post_switch_treat_XX == d_sq_XX_orig & !is.na(avg_post_switch_treat_XX) & F_g_XX != T_g_XX + 1 & !is.na(F_g_XX) & !is.na(T_g_XX))]
+    df[, S_g_XX := as.numeric(avg_post_switch_treat_XX > d_sq_XX_orig)]
+    df[, S_g_XX := fifelse(F_g_XX != T_max_XX + 1, S_g_XX, NA_real_)]
   }
 
   #### Define another version where S_g=-1 for switchers out, which we need 
   #### when predict_het or continuous specified.
   if (length(predict_het) > 0 | !is.null(continuous)) {
-    df$S_g_het_XX <- ifelse(df$S_g_XX == 0, -1, df$S_g_XX)
+    df[, S_g_het_XX := fifelse(S_g_XX == 0, -1, S_g_XX)]
   }
 
   #### If continuous option specified: binarizing and staggerizing treatment,
   #### and adding time_FEs interacted with D_{g,1} as controls
   if (!is.null(continuous)) {
     ## Binarizing and staggerizing treatment
-    df$treatment_temp_XX <- ifelse(!is.na(df$S_g_het_XX), 
-                                  as.numeric((df$F_g_XX <= df$time_XX) * df$S_g_het_XX), NA)
+    df[, treatment_temp_XX := fifelse(!is.na(S_g_het_XX),
+                                  as.numeric((F_g_XX <= time_XX) * S_g_het_XX), NA_real_)]
     df$treatment_XX_orig <- df$treatment_XX
     df$treatment_XX <- df$treatment_temp_XX
     ## Enriching controls
@@ -593,21 +589,21 @@ suppressWarnings({
   }
 
   #### Creating treatment at F_g: D_{g,F_g}
-  df$d_fg_XX <- ifelse(df$time_XX == df$F_g_XX, df$treatment_XX, NA)
+  df[, d_fg_XX := fifelse(time_XX == F_g_XX, treatment_XX, NA_real_)]
   df[, d_fg_XX := mean(d_fg_XX, na.rm = TRUE), by = group_XX]
-  df$d_fg_XX <- ifelse(is.na(df$d_fg_XX) & df$F_g_XX == T_max_XX + 1, df$d_sq_XX, df$d_fg_XX)
+  df[, d_fg_XX := fifelse(is.na(d_fg_XX) & F_g_XX == T_max_XX + 1, d_sq_XX, d_fg_XX)]
 
   #### Creating the variable L_g_XX = T_g_XX - F_g_XX so that we can compute L_u or L_a afterwards
   df$L_g_XX <- df$T_g_XX - df$F_g_XX + 1
 
   #### Creating the equivalent variable L_g_placebo_XX for placebos
   if (placebo > 0) {
-    df$L_g_placebo_XX <- ifelse(df$F_g_XX >= 3, ifelse(df$L_g_XX > df$F_g_XX - 2, df$F_g_XX - 2, df$L_g_XX), NA)
-    df$L_g_placebo_XX <- ifelse(df$L_g_placebo_XX == Inf, NA, df$L_g_placebo_XX)
+    df[, L_g_placebo_XX := fifelse(F_g_XX >= 3, fifelse(L_g_XX > F_g_XX - 2, F_g_XX - 2, L_g_XX), NA_real_)]
+    df[, L_g_placebo_XX := fifelse(L_g_placebo_XX == Inf, NA_real_, L_g_placebo_XX)]
   }
 
   #### Tagging first observation of each group_XX
-  df <- df[order(df$group_XX, df$time_XX), ]
+  setorder(df, group_XX, time_XX)
   df[, first_obs_by_gp_XX := seq_len(.N) == 1, by = group_XX]
   df$first_obs_by_gp_XX <- as.numeric(df$first_obs_by_gp_XX)
 
@@ -633,12 +629,11 @@ suppressWarnings({
   }
 
   #### Declaring the data as panel after the changes above
-  df <- pdata.frame(df, index = c("group_XX", "time_XX")) 
-  df$time_XX <- as.numeric(as.character(df$time_XX))
-  df$group_XX <- as.numeric(as.character(df$group_XX))
-  df$diff_y_XX <- diff(df$outcome_XX)
-  df$diff_d_XX <- diff(df$treatment_XX)
-  df <- as.data.table(df)
+  # Optimized: Use data.table shift() instead of plm::diff()
+  setDT(df)
+  setorder(df, group_XX, time_XX)
+  df[, diff_y_XX := outcome_XX - shift(outcome_XX), by = group_XX]
+  df[, diff_d_XX := treatment_XX - shift(treatment_XX), by = group_XX]
   setorder(df, group_XX, time_XX)
   ######## 3. Necessary pre-estimation steps when the controls option is specified
   ######### CHeck this part
@@ -926,7 +921,7 @@ suppressWarnings({
     ## For placebos
     if (placebo != 0) {
       L_placebo_u_XX <- max(df$L_g_placebo_XX[df$S_g_XX == 1], na.rm = TRUE)  
-      L_placebo_u_XX <- ifelse(L_placebo_u_XX < 0,0, L_placebo_u_XX)
+      L_placebo_u_XX <- fifelse(L_placebo_u_XX < 0, 0, L_placebo_u_XX)
       ## If the trends_lin option was specified, L_placebo_u_XX should be decreased by 1
       ## because data starts at period 2 instead of 1.
       if (isTRUE(trends_lin)) {
@@ -943,7 +938,7 @@ suppressWarnings({
     }
     if (placebo != 0) {
       L_placebo_a_XX <- max(df$L_g_placebo_XX[df$S_g_XX == 0], na.rm = TRUE)  
-      L_placebo_a_XX <- ifelse(L_placebo_a_XX < 0,0, L_placebo_a_XX)
+      L_placebo_a_XX <- fifelse(L_placebo_a_XX < 0, 0, L_placebo_a_XX)
       if (isTRUE(trends_lin)) {
         L_placebo_a_XX <- L_placebo_a_XX - 1
       }
@@ -1015,7 +1010,7 @@ suppressWarnings({
 
   ## Adjustment to add more placebos (did_multiplegt_dyn_all_pl)
   max_pl_u_XX <- max_pl_a_XX <- max_pl_gap_u_XX <- max_pl_gap_a_XX <- 0
-  df$pl_gap_XX <- ifelse(!is.na(df$S_g_XX), df$F_g_XX - 2 - df$L_g_XX, NA)
+  df[, pl_gap_XX := fifelse(!is.na(S_g_XX), F_g_XX - 2 - L_g_XX, NA_real_)]
   if (switchers == "" | switchers == "in") {
     max_pl_u_XX <- max(df$F_g_XX[df$S_g_XX == 1], na.rm = TRUE) - 2
     max_pl_gap_u_XX <- max(df$pl_gap_XX[df$S_g_XX == 1], na.rm = TRUE)
@@ -1032,64 +1027,71 @@ suppressWarnings({
   ## after Program 2 below has been run for switchers in and for switchers out.
 
   inh_obj <- c()
-  for (k in 1:l_XX) {
-    df[[paste0("U_Gg", k, "_plus_XX")]] <- 0
-    df[[paste0("U_Gg", k, "_minus_XX")]] <- 0
-    df[[paste0("count", k, "_plus_XX")]] <- 0
-    df[[paste0("count", k, "_minus_XX")]] <- 0
-    df[[paste0("U_Gg_var_", k, "_in_XX")]] <- 0
-    df[[paste0("U_Gg_var_", k, "_out_XX")]] <- 0
-    df[[paste0("delta_D_g_", k, "_plus_XX")]] <- 0
-    df[[paste0("delta_D_g_", k, "_minus_XX")]] <- 0
-  }
+  # Optimized: Use data.table set() for batch column creation
+  effect_cols <- c(
+    paste0("U_Gg", 1:l_XX, "_plus_XX"),
+    paste0("U_Gg", 1:l_XX, "_minus_XX"),
+    paste0("count", 1:l_XX, "_plus_XX"),
+    paste0("count", 1:l_XX, "_minus_XX"),
+    paste0("U_Gg_var_", 1:l_XX, "_in_XX"),
+    paste0("U_Gg_var_", 1:l_XX, "_out_XX"),
+    paste0("delta_D_g_", 1:l_XX, "_plus_XX"),
+    paste0("delta_D_g_", 1:l_XX, "_minus_XX")
+  )
+  for (col in effect_cols) set(df, j = col, value = 0)
   assign("sum_for_var_in_XX", 0)
   assign("sum_for_var_out_XX", 0)
   inh_obj <- c(inh_obj, "sum_for_var_in_XX", "sum_for_var_out_XX")
   if (placebo != 0) {
-    for (k in 1:l_XX) {
-      df[[paste0("U_Gg_pl_", k, "_plus_XX")]] <- 0
-      df[[paste0("U_Gg_pl_", k, "_minus_XX")]] <- 0
-      df[[paste0("count", k, "_pl_plus_XX")]] <- 0
-      df[[paste0("count", k, "_pl_minus_XX")]] <- 0
-      df[[paste0("U_Gg_var_pl_", k, "_in_XX")]] <- 0
-      df[[paste0("U_Gg_var_pl_", k, "_out_XX")]] <- 0
-    }
+    # Optimized: Use data.table set() for batch column creation
+    placebo_cols <- c(
+      paste0("U_Gg_pl_", 1:l_XX, "_plus_XX"),
+      paste0("U_Gg_pl_", 1:l_XX, "_minus_XX"),
+      paste0("count", 1:l_XX, "_pl_plus_XX"),
+      paste0("count", 1:l_XX, "_pl_minus_XX"),
+      paste0("U_Gg_var_pl_", 1:l_XX, "_in_XX"),
+      paste0("U_Gg_var_pl_", 1:l_XX, "_out_XX")
+    )
+    for (col in placebo_cols) set(df, j = col, value = 0)
     assign("sum_for_var_placebo_in_XX", 0)
     assign("sum_for_var_placebo_out_XX", 0)
     inh_obj <- c(inh_obj, "sum_for_var_placebo_in_XX", "sum_for_var_placebo_out_XX")
   }
 
-  for (i in 1:l_XX) {
-    ### dw = de-weighted
-    assign(paste0("N1_", i, "_XX"), 0) 
-    assign(paste0("N1_", i, "_XX_new"), 0) 
-    assign(paste0("N1_dw_", i, "_XX"), 0)
-    assign(paste0("N0_", i, "_XX"), 0) 
-    assign(paste0("N0_", i, "_XX_new"), 0)
-    assign(paste0("N0_dw_", i, "_XX"), 0) 
-    inh_obj <- c(inh_obj,paste0("N1_", i, "_XX"),paste0("N1_", i, "_XX_new"), 
-                paste0("N0_", i, "_XX"), paste0("N0_", i, "_XX_new"),paste0("N1_dw_", i, "_XX"),
-                paste0("N0_dw_", i, "_XX"))
+  # Optimized: Batch initialization of N scalars using pre-computed variable names
+  base_vars <- c(
+    paste0("N1_", 1:l_XX, "_XX"),
+    paste0("N1_", 1:l_XX, "_XX_new"),
+    paste0("N1_dw_", 1:l_XX, "_XX"),
+    paste0("N0_", 1:l_XX, "_XX"),
+    paste0("N0_", 1:l_XX, "_XX_new"),
+    paste0("N0_dw_", 1:l_XX, "_XX")
+  )
+  for (v in base_vars) assign(v, 0)
+  inh_obj <- c(inh_obj, base_vars)
+
+  if (normalized == TRUE) {
+    norm_vars <- c(paste0("delta_D_", 1:l_XX, "_in_XX"), paste0("delta_D_", 1:l_XX, "_out_XX"))
+    for (v in norm_vars) assign(v, 0)
+    inh_obj <- c(inh_obj, norm_vars)
+  }
+
+  if (placebo != 0) {
+    placebo_vars <- c(
+      paste0("N1_placebo_", 1:l_XX, "_XX"),
+      paste0("N1_placebo_", 1:l_XX, "_XX_new"),
+      paste0("N1_dw_placebo_", 1:l_XX, "_XX"),
+      paste0("N0_placebo_", 1:l_XX, "_XX"),
+      paste0("N0_placebo_", 1:l_XX, "_XX_new"),
+      paste0("N0_dw_placebo_", 1:l_XX, "_XX")
+    )
+    for (v in placebo_vars) assign(v, 0)
+    inh_obj <- c(inh_obj, placebo_vars)
+
     if (normalized == TRUE) {
-      assign(paste0("delta_D_",i,"_in_XX"), 0)
-      assign(paste0("delta_D_",i,"_out_XX"), 0)      
-      inh_obj <- c(inh_obj,paste0("delta_D_",i,"_in_XX"),paste0("delta_D_",i,"_out_XX"))
-    }
-    if (placebo != 0) {
-      assign(paste0("N1_placebo_", i, "_XX"), 0) 
-      assign(paste0("N1_placebo_", i, "_XX_new"), 0) 
-      assign(paste0("N1_dw_placebo_", i, "_XX"), 0) 
-      assign(paste0("N0_placebo_", i, "_XX"), 0) 
-      assign(paste0("N0_placebo_", i, "_XX_new"), 0) 
-      assign(paste0("N0_dw_placebo_", i, "_XX"), 0) 
-      inh_obj <- c(inh_obj,paste0("N1_placebo_", i, "_XX"),paste0("N1_placebo_", i, "_XX_new"), 
-                  paste0("N0_placebo_", i, "_XX"), paste0("N0_placebo_", i, "_XX_new"), paste0("N1_dw_placebo_", i, "_XX"),
-                  paste0("N0_dw_placebo_", i, "_XX"))
-      if (normalized == TRUE) {
-        assign(paste0("delta_D_pl_",i,"_in_XX"), 0)
-        assign(paste0("delta_D_pl_",i,"_out_XX"), 0)      
-        inh_obj <- c(inh_obj,paste0("delta_D_pl_",i,"_in_XX"),paste0("delta_D_pl_",i,"_out_XX"))
-      }
+      norm_pl_vars <- c(paste0("delta_D_pl_", 1:l_XX, "_in_XX"), paste0("delta_D_pl_", 1:l_XX, "_out_XX"))
+      for (v in norm_pl_vars) assign(v, 0)
+      inh_obj <- c(inh_obj, norm_pl_vars)
     }
   }
 
@@ -1422,9 +1424,12 @@ suppressWarnings({
     df[[paste0("U_Gg",i,"_global_XX")]] <- get(paste0("N1_",i,"_XX_new")) / (get(paste0("N1_",i,"_XX_new")) + get(paste0("N0_",i,"_XX_new"))) * df[[paste0("U_Gg",i,"_plus_XX")]] + get(paste0("N0_",i,"_XX_new")) / (get(paste0("N1_",i,"_XX_new")) + get(paste0("N0_",i,"_XX_new"))) * df[[paste0("U_Gg",i,"_minus_XX")]]
     df[[paste0("U_Gg",i,"_global_XX")]][df$first_obs_by_gp_XX == 0] <- NA
 
-    df[[paste0("count",i,"_global_XX")]] <- ifelse(df[[paste0("count",i,"_plus_XX")]] > df[[paste0("count",i,"_minus_XX")]], df[[paste0("count",i,"_plus_XX")]], df[[paste0("count",i,"_minus_XX")]])
-    df[[paste0("count",i,"_global_XX")]] <- ifelse(is.na(df[[paste0("count",i,"_plus_XX")]]), df[[paste0("count",i,"_minus_XX")]], df[[paste0("count",i,"_global_XX")]])
-    df[[paste0("count",i,"_global_XX")]] <- ifelse(is.na(df[[paste0("count",i,"_minus_XX")]]), df[[paste0("count",i,"_plus_XX")]], df[[paste0("count",i,"_global_XX")]])
+    col_plus <- paste0("count",i,"_plus_XX")
+    col_minus <- paste0("count",i,"_minus_XX")
+    col_global <- paste0("count",i,"_global_XX")
+    df[, (col_global) := fifelse(get(col_plus) > get(col_minus), get(col_plus), get(col_minus))]
+    df[, (col_global) := fifelse(is.na(get(col_plus)), get(col_minus), get(col_global))]
+    df[, (col_global) := fifelse(is.na(get(col_minus)), get(col_plus), get(col_global))]
     df[[paste0("count",i,"_global_XX")]][df[[paste0("count",i,"_global_XX")]] == -Inf] <- NA
     df[[paste0("count",i,"_global_dwXX")]] <- as.numeric(!is.na(df[[paste0("count",i,"_global_XX")]]) & df[[paste0("count",i,"_global_XX")]] > 0)
 
@@ -1478,8 +1483,8 @@ suppressWarnings({
   }
 
   ###### Computing the average total effect
-  U_Gg_den_plus_XX <- ifelse(is.na(mean(df$U_Gg_den_plus_XX, na.rm = TRUE)), 0, mean(df$U_Gg_den_plus_XX, na.rm = TRUE))
-  U_Gg_den_minus_XX <- ifelse(is.na(mean(df$U_Gg_den_minus_XX, na.rm = TRUE)), 0, mean(df$U_Gg_den_minus_XX, na.rm = TRUE))
+  U_Gg_den_plus_XX <- fifelse(is.na(mean(df$U_Gg_den_plus_XX, na.rm = TRUE)), 0, mean(df$U_Gg_den_plus_XX, na.rm = TRUE))
+  U_Gg_den_minus_XX <- fifelse(is.na(mean(df$U_Gg_den_minus_XX, na.rm = TRUE)), 0, mean(df$U_Gg_den_minus_XX, na.rm = TRUE))
 
   #### The average effect cannot be estimated when the trends_lin option is specified so the whole part will be skipped in that case
   if (isFALSE(trends_lin)) {
@@ -1523,7 +1528,10 @@ suppressWarnings({
     # Number of observations used in the estimation
     df$count_global_XX <- 0
     for (i in 1:l_XX) {
-      df$count_global_XX <- ifelse(!is.na(df[[paste0("count",i,"_global_XX")]]), ifelse(df$count_global_XX > df[[paste0("count",i,"_global_XX")]], df$count_global_XX, df[[paste0("count",i,"_global_XX")]]), df$count_global_XX)
+      col_i <- paste0("count",i,"_global_XX")
+      df[, count_global_XX := fifelse(!is.na(get(col_i)),
+        fifelse(count_global_XX > get(col_i), count_global_XX, get(col_i)),
+        count_global_XX)]
     }
     df$count_global_dwXX <- as.numeric(!is.na(df$count_global_XX) & df$count_global_XX > 0)
     N_effect_XX <- sum(df$count_global_XX, na.rm = TRUE)
@@ -1542,9 +1550,12 @@ suppressWarnings({
       df[[paste0("U_Gg_pl_",i,"_global_XX")]] <- get(paste0("N1_placebo_",i,"_XX_new")) / (get(paste0("N1_placebo_",i,"_XX_new")) + get(paste0("N0_placebo_",i,"_XX_new"))) * df[[paste0("U_Gg_pl_",i,"_plus_XX")]] + get(paste0("N0_placebo_",i,"_XX_new")) / (get(paste0("N1_placebo_",i,"_XX_new")) + get(paste0("N0_placebo_",i,"_XX_new"))) * df[[paste0("U_Gg_pl_",i,"_minus_XX")]]
       df[[paste0("U_Gg_pl_",i,"_global_XX")]][df$first_obs_by_gp_XX == 0] <- NA
 
-      df[[paste0("count",i,"_pl_global_XX")]] <- ifelse(df[[paste0("count",i,"_pl_plus_XX")]] > df[[paste0("count",i,"_pl_minus_XX")]], df[[paste0("count",i,"_pl_plus_XX")]], df[[paste0("count",i,"_pl_minus_XX")]])
-      df[[paste0("count",i,"_pl_global_XX")]] <- ifelse(is.na(df[[paste0("count",i,"_pl_plus_XX")]]), df[[paste0("count",i,"_pl_minus_XX")]], df[[paste0("count",i,"_pl_global_XX")]])
-      df[[paste0("count",i,"_pl_global_XX")]] <- ifelse(is.na(df[[paste0("count",i,"_pl_minus_XX")]]), df[[paste0("count",i,"_pl_plus_XX")]], df[[paste0("count",i,"_pl_global_XX")]])
+      col_pl_plus <- paste0("count",i,"_pl_plus_XX")
+      col_pl_minus <- paste0("count",i,"_pl_minus_XX")
+      col_pl_global <- paste0("count",i,"_pl_global_XX")
+      df[, (col_pl_global) := fifelse(get(col_pl_plus) > get(col_pl_minus), get(col_pl_plus), get(col_pl_minus))]
+      df[, (col_pl_global) := fifelse(is.na(get(col_pl_plus)), get(col_pl_minus), get(col_pl_global))]
+      df[, (col_pl_global) := fifelse(is.na(get(col_pl_minus)), get(col_pl_plus), get(col_pl_global))]
       df[[paste0("count",i,"_pl_global_XX")]][df[[paste0("count",i,"_pl_global_XX")]] == -Inf] <- NA
       df[[paste0("count",i,"_pl_global_dwXX")]] <- as.numeric(!is.na(df[[paste0("count",i,"_pl_global_XX")]]) & df[[paste0("count",i,"_pl_global_XX")]] > 0)
 
@@ -1594,7 +1605,7 @@ suppressWarnings({
   ci_level <- ci_level / 100
   z_level <- qnorm(ci_level + (1 - ci_level)/2)
 
-  df <- data.table(df)
+  # df is already a data.table
   ## Loop over the number of effects to be estimated
   for (i in 1:l_XX) {
     if ((switchers == "" & (get(paste0("N1_",i,"_XX_new")) != 0 | get(paste0("N0_",i,"_XX_new"))) != 0) | (switchers == "out" & get(paste0("N0_",i,"_XX_new")) != 0 ) | (switchers == "in" & get(paste0("N1_",i,"_XX_new")) != 0 )) {
@@ -1776,7 +1787,7 @@ suppressWarnings({
   for (i in 1:l_XX) {
     df[[paste0("delta_D_g_",i,"_XX")]] <- NULL
   }
-  df$M_g_XX <- ifelse(l_XX <= df$T_g_XX - df$F_g_XX + 1, l_XX, df$T_g_XX - df$F_g_XX + 1)
+  df[, M_g_XX := fifelse(l_XX <= T_g_XX - F_g_XX + 1, as.numeric(l_XX), T_g_XX - F_g_XX + 1)]
 
   #### Calling variables delta_D_g_`i'_XX here like that does not work because switcher in/out are run one after another!!!
 
@@ -1784,12 +1795,13 @@ suppressWarnings({
   ## actually I think it can be done in one total as we sum over the periods within groups and then across groups which are all different cells
   ## generate one variable that stores all the different delta_D_g_`i'_XX
 
-  df$delta_D_g_XX <- 0
+  df[, delta_D_g_XX := 0]
   for (j in 1:l_XX) {
-    df$delta_D_g_XX_temp <- ifelse(df[[paste0("delta_D_g_",j,"_plus_XX")]] != 0, df[[paste0("delta_D_g_",j,"_plus_XX")]],
-                                  df[[paste0("delta_D_g_",j,"_minus_XX")]])
-    df$delta_D_g_XX_temp <- ifelse(df$delta_D_g_XX_temp == 0, NA, df$delta_D_g_XX_temp)
-    df$delta_D_g_XX <- ifelse(df$switchers_tag_XX == j, df$delta_D_g_XX + df$delta_D_g_XX_temp, df$delta_D_g_XX)
+    col_plus <- paste0("delta_D_g_",j,"_plus_XX")
+    col_minus <- paste0("delta_D_g_",j,"_minus_XX")
+    df[, delta_D_g_XX_temp := fifelse(get(col_plus) != 0, get(col_plus), get(col_minus))]
+    df[, delta_D_g_XX_temp := fifelse(delta_D_g_XX_temp == 0, NA_real_, delta_D_g_XX_temp)]
+    df[, delta_D_g_XX := fifelse(switchers_tag_XX == j, delta_D_g_XX + delta_D_g_XX_temp, delta_D_g_XX)]
   }
   df$delta_D_g_num_XX <- df$delta_D_g_XX * (df$M_g_XX - (df$switchers_tag_XX - 1))
   delta_D_num_total <- sum(df$delta_D_g_num_XX, na.rm = TRUE)
@@ -1955,17 +1967,17 @@ suppressWarnings({
       }
 
       # Preliminaries: Yg Fg1
-      df$Yg_Fg_min1_XX <- ifelse(df$time_XX == df$F_g_XX - 1, df$outcome_non_diff_XX, NA)
+      df[, Yg_Fg_min1_XX := fifelse(time_XX == F_g_XX - 1, outcome_non_diff_XX, NA_real_)]
       df[, Yg_Fg_min1_XX := mean(Yg_Fg_min1_XX, na.rm = TRUE), by = group_XX]
       df$feasible_het_XX <- !is.na(df$Yg_Fg_min1_XX)
       if (!is.null(trends_lin)) {
-        df$Yg_Fg_min2_XX <- ifelse(df$time_XX == df$F_g_XX - 2, df$outcome_non_diff_XX, NA)
+        df[, Yg_Fg_min2_XX := fifelse(time_XX == F_g_XX - 2, outcome_non_diff_XX, NA_real_)]
         df[, Yg_Fg_min2_XX := mean(Yg_Fg_min2_XX, na.rm = TRUE), by = group_XX]
-        df$Yg_Fg_min2_XX <- ifelse(is.nan(df$Yg_Fg_min2_XX), NA, df$Yg_Fg_min2_XX)
+        df[, Yg_Fg_min2_XX := fifelse(is.nan(Yg_Fg_min2_XX), NA_real_, Yg_Fg_min2_XX)]
 
         df$feasible_het_XX <- df$feasible_het_XX & !is.na(df$Yg_Fg_min2_XX)
       }
-      df <- df[order(df$group_XX, df$time_XX), ]
+      setorder(df, group_XX, time_XX)
       df[, gr_id := seq_len(.N), by = group_XX]
 
       lhyp <- c()
@@ -1977,8 +1989,8 @@ suppressWarnings({
       ## Loop the procedure over all requested effects for which potential heterogeneity should be predicted
       for (i in all_effects_XX) {
         # Generation of factor dummies for regression
-        het_sample <- subset(df, df$F_g_XX - 1 + i <= df$T_g_XX & df$feasible_het_XX)
-        het_sample <- subset(het_sample, select = c("F_g_XX", "d_sq_XX", "S_g_XX", trends_nonparam))
+        het_sample <- df[F_g_XX - 1 + i <= T_g_XX & feasible_het_XX == TRUE,
+                         .SD, .SDcols = c("F_g_XX", "d_sq_XX", "S_g_XX", trends_nonparam)]
         het_interact <- ""
         for (v in c("F_g_XX", "d_sq_XX", "S_g_XX", trends_nonparam)) {
           if (length(levels(as.factor(het_sample[[v]]))) > 1) {
@@ -1993,7 +2005,7 @@ suppressWarnings({
         het_sample <- NULL
 
         # Yg,Fg-1 + l
-        df[[paste0("Yg_Fg_", i, "_XX")]] <- ifelse(df$time_XX == df$F_g_XX - 1 + i, df$outcome_non_diff_XX, NA)
+        df[, paste0("Yg_Fg_", i, "_XX") := fifelse(time_XX == F_g_XX - 1 + i, outcome_non_diff_XX, NA_real_)]
         df[, paste0("Yg_Fg_",i,"_XX") := mean(get(paste0("Yg_Fg_",i,"_XX")), na.rm = TRUE), by = group_XX]
 
         df$diff_het_XX <- df[[paste0("Yg_Fg_",i,"_XX")]] - df$Yg_Fg_min1_XX
@@ -2005,7 +2017,8 @@ suppressWarnings({
         df$diff_het_XX <- NULL
 
         # keep one observation by group to not artificially increase sample
-        df[[paste0("prod_het_",i,"_XX")]] <- ifelse(df$gr_id == 1, df[[paste0("prod_het_",i,"_XX")]], NA)
+        col_prod <- paste0("prod_het_",i,"_XX")
+        df[, (col_prod) := fifelse(gr_id == 1, get(col_prod), NA_real_)]
 
         # In order to perform the test with coeftest, we need a vector of non missing regression coefficients. To avoid collinearity, we run the regression two times: the first time with the full set of regressors (F_g_XX_h#d_sq_XX_h#S_g_XX_h), then with just the non-collinear variables.
         het_reg <- paste0("prod_het_",i,"_XX ~ ")
@@ -2013,7 +2026,7 @@ suppressWarnings({
           het_reg <- paste0(het_reg,v," + ")
         }
         het_reg <- paste0(het_reg, het_interact)
-        het_sample <- subset(df, df$F_g_XX - 1 + i <= df$T_g_XX)
+        het_sample <- df[F_g_XX - 1 + i <= T_g_XX]
         model <- lm(as.formula(het_reg), data = het_sample, weights = het_sample$weight_XX)
         het_reg <- gsub(het_interact, "", het_reg)
         for (k in names(model$coefficients)) {
@@ -2061,8 +2074,8 @@ suppressWarnings({
 
       for (i in all_effects_pl_XX) {
         # Generation of factor dummies for regression
-        het_sample <- subset(df, df$F_g_XX - 1 + i <= df$T_g_XX & df$feasible_het_XX)
-        het_sample <- subset(het_sample, select = c("F_g_XX", "d_sq_XX", "S_g_XX", trends_nonparam))
+        het_sample <- df[F_g_XX - 1 + i <= T_g_XX & feasible_het_XX == TRUE,
+                         .SD, .SDcols = c("F_g_XX", "d_sq_XX", "S_g_XX", trends_nonparam)]
         het_interact <- ""
         for (v in c("F_g_XX", "d_sq_XX", "S_g_XX", trends_nonparam)) {
           if (length(levels(as.factor(het_sample[[v]]))) > 1) {
@@ -2077,7 +2090,7 @@ suppressWarnings({
         het_sample <- NULL
 
         # Yg,Fg-1 + l
-        df[[paste0("Yg_Fg_pl_", i, "_XX")]] <- ifelse(df$time_XX == df$F_g_XX - 1 - i, df$outcome_non_diff_XX, NA)
+        df[, paste0("Yg_Fg_pl_", i, "_XX") := fifelse(time_XX == F_g_XX - 1 - i, outcome_non_diff_XX, NA_real_)]
         df[, paste0("Yg_Fg_pl_",i,"_XX") := mean(get(paste0("Yg_Fg_pl_",i,"_XX")), na.rm = TRUE), by = group_XX]
 
         df$diff_het_pl_XX <- df[[paste0("Yg_Fg_pl_",i,"_XX")]] - df$Yg_Fg_min1_XX
@@ -2090,7 +2103,8 @@ suppressWarnings({
         df$diff_het_pl_XX <- NULL
 
         # keep one observation by group to not artificially increase sample
-        df[[paste0("prod_het_pl_",i,"_XX")]] <- ifelse(df$gr_id == 1, df[[paste0("prod_het_pl_",i,"_XX")]], NA)
+        col_prod_pl <- paste0("prod_het_pl_",i,"_XX")
+        df[, (col_prod_pl) := fifelse(gr_id == 1, get(col_prod_pl), NA_real_)]
 
         # In order to perform the test with coeftest, we need a vector of non missing regression coefficients. To avoid collinearity, we run the regression two times: the first time with the full set of regressors (F_g_XX_h#d_sq_XX_h#S_g_XX_h), then with just the non-collinear variables.
         het_reg <- paste0("prod_het_pl_",i,"_XX ~ ")
@@ -2098,7 +2112,7 @@ suppressWarnings({
           het_reg <- paste0(het_reg,v," + ")
         }
         het_reg <- paste0(het_reg, het_interact)
-        het_sample <- subset(df, df$F_g_XX - 1 + i <= df$T_g_XX)
+        het_sample <- df[F_g_XX - 1 + i <= T_g_XX]
         model <- lm(as.formula(het_reg), data = het_sample, weights = het_sample$weight_XX)
         het_reg <- gsub(het_interact, "", het_reg)
         for (k in names(model$coefficients)) {
