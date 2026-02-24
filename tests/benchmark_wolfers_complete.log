@@ -1,0 +1,104 @@
+====================================================================== 
+COMPREHENSIVE BENCHMARK: DID Estimators Comparison
+====================================================================== 
+Date: 2026-01-16 11:30:31.247014 
+Packages: DIDmultiplegtDYN (CRAN), DIDmultiplegtDYNpolars, did (CS), didimputation, fixest (SA)
+
+Loading data...
+Original data rows: 1683 
+Unique states: 51 
+Year range: 1956 - 1988 
+Treatment groups (first_treat): 0, 1956, 1969, 1970, 1971, 1972, 1973, 1974, 1975, 1976, 1977, 1985 
+
+
+ ====================================================================== 
+SCENARIO 1: Original Data ( 1683  rows)
+====================================================================== 
+
+1. Running DIDmultiplegtDYN (CRAN)...
+   Time: 3.9 seconds 
+2. Running DIDmultiplegtDYNpolars...
+   Time: 3.57 seconds 
+3. Running did (Callaway-Sant'Anna)...
+   Time: 0.72 seconds 
+4. Running didimputation...
+   Time: 0.07 seconds 
+5. Running fixest (Sun-Abraham)...
+   Time: 0.38 seconds 
+
+ ====================================================================== 
+SCENARIO 2: Synthetic Data 100x
+====================================================================== 
+
+Synthetic data rows: 168300 
+
+1. Running DIDmultiplegtDYN (CRAN)...
+   Time: 118.48 seconds 
+2. Running DIDmultiplegtDYNpolars...
+   Time: 7.52 seconds 
+3. Running did (Callaway-Sant'Anna)...
+   Time: 1.75 seconds 
+4. Running didimputation...
+   Time: 32.62 seconds 
+5. Running fixest (Sun-Abraham)...
+   Time: 32.68 seconds 
+           used (Mb) gc trigger   (Mb) limit (Mb)   max used    (Mb)
+Ncells  4024382  215   11433067  610.6         NA   11433067   610.6
+Vcells 70774601  540 1266383159 9661.8      36864 4830001458 36850.0
+
+ ====================================================================== 
+SCENARIO 3: Synthetic Data 1000x
+====================================================================== 
+
+Synthetic data rows: 1683000 
+
+1. Running DIDmultiplegtDYNpolars...
+   Time: 46.28 seconds 
+2. Running fixest (Sun-Abraham)...
+   Time: 347.17 seconds 
+3. Running did (Callaway-Sant'Anna)...
+   Time: 12.22 seconds 
+4. Running didimputation...
+Processed 15281 groups out of 49000. 31% done. Time elapsed: 3s. ETA: 6s.Processed 20918 groups out of 49000. 43% done. Time elapsed: 4s. ETA: 5s.Processed 26627 groups out of 49000. 54% done. Time elapsed: 5s. ETA: 4s.Processed 32357 groups out of 49000. 66% done. Time elapsed: 6s. ETA: 3s.Processed 38073 groups out of 49000. 78% done. Time elapsed: 7s. ETA: 2s.Processed 43674 groups out of 49000. 89% done. Time elapsed: 8s. ETA: 0s.Processed 49000 groups out of 49000. 100% done. Time elapsed: 8s. ETA: 0s.
+   Time: 3164.35 seconds 
+5. Running DIDmultiplegtDYN (CRAN)...
+   (timeout set to 139 seconds)
+   Time: error 
+            used   (Mb) gc trigger    (Mb) limit (Mb)   max used    (Mb)
+Ncells   3992622  213.3   11433067   610.6         NA   11433067   610.6
+Vcells 686529200 5237.9 3862962704 29472.1      36864 4830001458 36850.0
+
+ ====================================================================== 
+SUMMARY OF RESULTS
+====================================================================== 
+
+          scenario                 package    rows time_seconds    status
+1  Original (1.7K)   DIDmultiplegtDYN-CRAN    1683 3.902898e+00 completed
+2  Original (1.7K) DIDmultiplegtDYN-Polars    1683 3.571665e+00 completed
+3  Original (1.7K)                  did-CS    1683 7.212651e-01 completed
+4  Original (1.7K)           didimputation    1683 7.300687e-02 completed
+5  Original (1.7K)               fixest-SA    1683 3.759220e-01 completed
+6      100x (168K)   DIDmultiplegtDYN-CRAN  168300 1.184835e+02 completed
+7      100x (168K) DIDmultiplegtDYN-Polars  168300 7.521505e+00 completed
+8      100x (168K)                  did-CS  168300 1.745081e+00 completed
+9      100x (168K)           didimputation  168300 3.262171e+01 completed
+10     100x (168K)               fixest-SA  168300 3.268187e+01 completed
+11   1000x (1.68M) DIDmultiplegtDYN-Polars 1683000 4.627794e+01 completed
+12   1000x (1.68M)               fixest-SA 1683000 3.471729e+02 completed
+13   1000x (1.68M)                  did-CS 1683000 1.222339e+01 completed
+14   1000x (1.68M)           didimputation 1683000 3.164349e+03 completed
+15   1000x (1.68M)   DIDmultiplegtDYN-CRAN 1683000           NA     error
+
+
+PIVOT TABLE (Time in seconds):
+====================================================================== 
+
+                  package Original (1.7K) 100x (168K) 1000x (1.68M)
+1   DIDmultiplegtDYN-CRAN      3.90289807  118.483513            NA
+2 DIDmultiplegtDYN-Polars      3.57166505    7.521505      46.27794
+3                  did-CS      0.72126508    1.745081      12.22339
+4           didimputation      0.07300687   32.621705    3164.34912
+5               fixest-SA      0.37592196   32.681875     347.17290
+
+
+Benchmark completed at: 2026-01-16 12:46:34.024837 

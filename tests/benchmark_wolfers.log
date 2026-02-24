@@ -1,0 +1,27 @@
+============================================================ 
+BENCHMARK: did_multiplegt_dyn - Wolfers 2006 Dataset
+============================================================ 
+Date: 2026-01-27 11:51:11.681087 
+
+Loading data...
+Original data rows: 1683 
+
+
+ ============================================================ 
+SCENARIO 1: Original Data ( 1683  rows)
+============================================================ 
+
+Running R-CRAN...
+R-CRAN: 4.05 seconds 
+Running R-Polars...
+R-Polars: 3.79 seconds 
+
+ ============================================================ 
+SCENARIO 2: Synthetic Data 100x
+============================================================ 
+
+Synthetic data rows: 168300 
+
+Running R-CRAN...
+R-CRAN: 12.29 seconds 
+Running R-Polars...

@@ -1,0 +1,7 @@
+"scenario","package","rows","time_seconds","status"
+"Original (1.7K)","R-CRAN",1683,4.497642993927,"completed"
+"Original (1.7K)","R-Polars",1683,3.24367690086365,"completed"
+"100x (168K)","R-CRAN",168300,120.88069486618,"completed"
+"100x (168K)","R-Polars",168300,6.65132904052734,"completed"
+"10000x (16.8M)","R-Polars",1683000,42.0239160060883,"completed"
+"10000x (16.8M)","R-CRAN",1683000,NA,"error"
