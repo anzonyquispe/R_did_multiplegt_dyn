@@ -140,6 +140,7 @@ suppressWarnings({
   df <- subset(df, select = original_names)
   df <- data.table::setnames(df, old = c(outcome, group, time, treatment), new = c("outcome", "group", "time", "treatment"))
   df <- data.table(df)
+  class(df) <- c("data.table", "data.frame")
 
   #### Grouping together trends_nonparam variables
   #if (!is.null(trends_nonparam)) {
